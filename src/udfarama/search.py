@@ -8,6 +8,13 @@ import xml.etree.ElementTree as ET
 from typing import Callable, NamedTuple, Optional
 
 
+class MatchItem(NamedTuple):
+    path: str
+    relative_path: str
+    basename: str
+    snippet: str = ""
+
+
 class SearchOutcome(NamedTuple):
     matches: list
     errors: int
@@ -18,6 +25,31 @@ class SearchOutcome(NamedTuple):
 
 def normalize_search_text(text):
     return unicodedata.normalize("NFC", text).translate(str.maketrans({"I": "ı", "İ": "i"})).casefold()
+
+
+def extract_snippet(text, term, max_len=80):
+    needle = normalize_search_text(term)
+    if not needle:
+        return ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if needle in normalize_search_text(stripped):
+            if len(stripped) <= max_len:
+                return stripped
+            return stripped[: max_len - 1] + "…"
+    return ""
+
+
+def make_match_item(folder, path, text="", term=""):
+    snippet = extract_snippet(text, term) if text and term else ""
+    return MatchItem(
+        path=path,
+        relative_path=os.path.relpath(path, folder),
+        basename=os.path.basename(path),
+        snippet=snippet,
+    )
 
 
 def format_search_status(outcome: SearchOutcome):
@@ -90,7 +122,7 @@ def search_udf_folder(
                     except ET.ParseError:
                         pass
                     if lowered in normalize_search_text(text):
-                        matches.append(path)
+                        matches.append(make_match_item(folder, path, text, term))
                 except (OSError, zipfile.BadZipFile, RuntimeError,
                         EOFError, zlib.error, lzma.LZMAError):
                     errors += 1

@@ -13,8 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from udfarama.search import (
+    MatchItem,
     SearchOutcome,
+    extract_snippet,
     format_search_status,
+    make_match_item,
     normalize_search_text,
     search_udf_folder,
 )
@@ -39,21 +42,24 @@ class SearchTests(unittest.TestCase):
 
     def test_nested_xml_and_uppercase_extension(self):
         path = self.document("nested/test.UDF", "<root><content>karar</content></root>")
-        self.assertEqual(
-            self.search("karar"),
-            SearchOutcome([str(path)], 0, 0, False, False),
-        )
+        outcome = self.search("karar")
+        self.assertEqual(len(outcome.matches), 1)
+        match = outcome.matches[0]
+        self.assertEqual(match.path, str(path))
+        self.assertEqual(match.basename, "test.UDF")
+        self.assertEqual(match.relative_path, os.path.join("nested", "test.UDF"))
+        self.assertEqual(match.snippet, "karar")
+        self.assertEqual(outcome[1:], (0, 0, False, False))
 
     def test_turkish_case_and_unicode(self):
         path = self.document("test.udf", "<root>İSTANBUL HAKİM IŞIK</root>")
         for term in ("istanbul", "hakim", "ışık", "I\u0307STANBUL"):
             with self.subTest(term=term):
-                self.assertEqual(
-                    self.search(term),
-                    SearchOutcome([str(path)], 0, 0, False, False),
-                )
+                outcome = self.search(term)
+                self.assertEqual([m.path for m in outcome.matches], [str(path)])
+                self.assertTrue(outcome.matches[0].snippet)
         self.assertEqual(normalize_search_text("I"), "ı")
-        self.assertEqual(self.search("isik"), SearchOutcome([], 0, 0, False, False))
+        self.assertEqual(self.search("isik").matches, [])
 
     def test_broken_deflate_does_not_stop_other_files(self):
         broken = self.document("broken.udf", "<root>karar</root>")
@@ -63,21 +69,22 @@ class SearchTests(unittest.TestCase):
         broken.write_bytes(data)
         good = self.document("good.udf", "<root>karar</root>")
         outcome = self.search("karar")
-        self.assertEqual(outcome, SearchOutcome([str(good)], 1, 0, False, False))
+        self.assertEqual([m.path for m in outcome.matches], [str(good)])
+        self.assertEqual(outcome.errors, 1)
         self.assertIn("1 dosya okunamadı", format_search_status(outcome))
 
     def test_invalid_zip_and_missing_content(self):
         (self.folder / "invalid.udf").write_text("not a zip")
         with zipfile.ZipFile(self.folder / "missing.udf", "w") as archive:
             archive.writestr("other.xml", "<root/>")
-        self.assertEqual(self.search("karar"), SearchOutcome([], 2, 0, False, False))
+        outcome = self.search("karar")
+        self.assertEqual(outcome.matches, [])
+        self.assertEqual(outcome.errors, 2)
 
     def test_malformed_xml_fallback(self):
         path = self.document("old.udf", "<root>karar")
-        self.assertEqual(
-            self.search("karar"),
-            SearchOutcome([str(path)], 0, 0, False, False),
-        )
+        outcome = self.search("karar")
+        self.assertEqual([m.path for m in outcome.matches], [str(path)])
 
     def test_unreadable_directory_is_reported(self):
         original_walk = os.walk
@@ -103,7 +110,7 @@ class SearchTests(unittest.TestCase):
         progress = []
         outcome = self.search("karar", on_progress=lambda s, m: progress.append((s, m)))
         self.assertEqual(progress, [(1, 1)])
-        self.assertEqual(outcome.matches, [str(self.folder / "a.udf")])
+        self.assertEqual(outcome.matches[0].basename, "a.udf")
 
     def test_cancel_stops_and_keeps_partial_matches(self):
         self.document("one.udf", "<root>karar</root>")
@@ -126,8 +133,23 @@ class SearchTests(unittest.TestCase):
         self.assertLess(len(outcome.matches), 3)
         self.assertIn("durduruldu", format_search_status(outcome))
 
+    def test_make_match_item_fields(self):
+        folder = "/docs"
+        path = "/docs/alt/emsal.udf"
+        item = make_match_item(folder, path, "önce karar sonra", "karar")
+        self.assertEqual(
+            item,
+            MatchItem(path, os.path.join("alt", "emsal.udf"), "emsal.udf", "önce karar sonra"),
+        )
+
+    def test_extract_snippet_truncates(self):
+        long_line = "x" * 20 + "karar" + "y" * 80
+        snippet = extract_snippet(long_line, "karar", max_len=30)
+        self.assertEqual(len(snippet), 30)
+        self.assertTrue(snippet.endswith("…"))
+
     def test_cancelled_status_text(self):
-        outcome = SearchOutcome(["a.udf"], 0, 0, False, True)
+        outcome = SearchOutcome([make_match_item("/f", "/f/a.udf")], 0, 0, False, True)
         self.assertEqual(format_search_status(outcome), "Arama durduruldu: 1 belge bulundu.")
 
 

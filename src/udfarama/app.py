@@ -4,13 +4,31 @@ from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Gio, GLib, Pango
+from gi.repository import Gtk, Gio, GLib, GObject, Pango
 
 from udfarama.search import format_search_status, search_udf_folder
 
 
 APP_ID = "com.adalettekno.UDFarama"
 APP_NAME = "UDFarama"
+
+
+class SearchResult(GObject.Object):
+    __gtype_name__ = "UDFaramaSearchResult"
+
+    path = GObject.Property(type=str, default="")
+    relative_path = GObject.Property(type=str, default="")
+    basename = GObject.Property(type=str, default="")
+    snippet = GObject.Property(type=str, default="")
+
+    @classmethod
+    def from_match(cls, item):
+        return cls(
+            path=item.path,
+            relative_path=item.relative_path,
+            basename=item.basename,
+            snippet=item.snippet,
+        )
 
 
 class UdfSearchWindow(Gtk.ApplicationWindow):
@@ -58,7 +76,7 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         scrolled.set_vexpand(True)
         root.append(scrolled)
 
-        self.model = Gtk.StringList()
+        self.model = Gio.ListStore.new(SearchResult)
         self.list_view = Gtk.ListView.new(
             Gtk.SingleSelection.new(self.model),
             Gtk.SignalListItemFactory()
@@ -72,11 +90,23 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         self.load_saved_folder()
 
     def _setup_item(self, factory, item):
-        item.set_child(Gtk.Label(xalign=0))
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        title = Gtk.Label(xalign=0)
+        title.set_ellipsize(Pango.EllipsizeMode.END)
+        subtitle = Gtk.Label(xalign=0)
+        subtitle.add_css_class("dim-label")
+        subtitle.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        box.append(title)
+        box.append(subtitle)
+        item.set_child(box)
 
     def _bind_item(self, factory, item):
-        label = item.get_child()
-        label.set_text(item.get_item().get_string())
+        result = item.get_item()
+        box = item.get_child()
+        title = box.get_first_child()
+        subtitle = title.get_next_sibling()
+        title.set_text(result.basename)
+        subtitle.set_text(result.relative_path)
 
     def show_error(self, message):
         dialog = Gtk.AlertDialog(message=message)
@@ -171,8 +201,8 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         if generation != self._search_generation:
             return GLib.SOURCE_REMOVE
         try:
-            for path in outcome.matches:
-                self.model.append(path)
+            for match in outcome.matches:
+                self.model.append(SearchResult.from_match(match))
             self.status.set_text(format_search_status(outcome))
         finally:
             self.searching = False
@@ -181,10 +211,10 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         return GLib.SOURCE_REMOVE
 
     def open_selected(self, list_view, position):
-        item = self.model.get_string(position)
-        if not item or not os.path.isfile(item):
+        result = self.model.get_item(position)
+        if result is None or not result.path or not os.path.isfile(result.path):
             return
-        uri = Gio.File.new_for_path(item).get_uri()
+        uri = Gio.File.new_for_path(result.path).get_uri()
         try:
             Gio.AppInfo.launch_default_for_uri(uri, None)
         except GLib.Error as exc:
