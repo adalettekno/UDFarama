@@ -6,7 +6,7 @@ import unicodedata
 import zipfile
 import zlib
 import xml.etree.ElementTree as ET
-from typing import Callable, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional, Tuple
 
 
 class MatchItem(NamedTuple):
@@ -60,29 +60,41 @@ def make_match_item(folder, path, text="", term=""):
     )
 
 
-def format_search_status(outcome: SearchOutcome):
-    matches = outcome.matches
+def format_search_status_parts(outcome: SearchOutcome) -> Tuple[str, str]:
+    n = len(outcome.matches)
     if outcome.cancelled:
-        message = f"Arama durduruldu: {len(matches)} belge bulundu."
+        primary = f"Arama durduruldu: {n} sonuç."
     else:
         incomplete = outcome.failed or outcome.file_failures or outcome.directory_errors
-        message = (
-            f"Arama kısmen tamamlandı: {len(matches)} belge bulundu."
-            if incomplete else f"Arama tamamlandı: {len(matches)} belge bulundu."
+        primary = (
+            f"Arama kısmen tamamlandı: {n} sonuç."
+            if incomplete else f"Arama tamamlandı: {n} sonuç."
         )
+    details = []
     if outcome.missing_content:
-        message += f" {outcome.missing_content} dosyada content.xml yok."
+        details.append(f"{outcome.missing_content} dosyada content.xml yok.")
     if outcome.bad_archive:
-        message += f" {outcome.bad_archive} dosya bozuk veya açılamadı."
+        details.append(f"{outcome.bad_archive} dosya bozuk veya açılamadı.")
     if outcome.permission_errors:
-        message += f" {outcome.permission_errors} dosyaya izin yok."
+        details.append(f"{outcome.permission_errors} dosyaya izin yok.")
     if outcome.parse_errors:
-        message += f" {outcome.parse_errors} dosyada XML çözümlenemedi; düz metin arandı."
+        details.append(f"{outcome.parse_errors} dosyada XML çözümlenemedi; düz metin arandı.")
     if outcome.directory_errors:
-        message += f" {outcome.directory_errors} klasör taranamadı."
+        details.append(f"{outcome.directory_errors} klasör taranamadı.")
     if outcome.failed:
-        message += " Beklenmeyen bir hata nedeniyle tarama durdu; yeniden deneyin."
-    return message
+        details.append("Beklenmeyen bir hata nedeniyle tarama durdu; yeniden deneyin.")
+    return primary, " ".join(details)
+
+
+def format_search_status(outcome: SearchOutcome):
+    primary, detail = format_search_status_parts(outcome)
+    if detail:
+        return f"{primary} {detail}"
+    return primary
+
+
+def should_apply_search_generation(current_generation, result_generation):
+    return current_generation == result_generation
 
 
 def search_udf_folder(
@@ -106,7 +118,7 @@ def search_udf_folder(
         directory_errors += 1
 
     def report_progress():
-        if on_progress is not None and (scanned == 1 or scanned % 5 == 0):
+        if on_progress is not None and (scanned == 1 or scanned % 25 == 0):
             on_progress(scanned, len(matches))
 
     def count_read_failure(exc):
@@ -143,9 +155,14 @@ def search_udf_folder(
                             scanned += 1
                             report_progress()
                             continue
-                    text = data.decode("utf-8", errors="replace")
+                    raw = data.decode("utf-8", errors="replace")
+                    if lowered not in normalize_search_text(raw):
+                        scanned += 1
+                        report_progress()
+                        continue
+                    text = raw
                     try:
-                        root = ET.fromstring(text)
+                        root = ET.fromstring(raw)
                         text = "\n".join(t for t in root.itertext() if t)
                     except ET.ParseError:
                         parse_errors += 1

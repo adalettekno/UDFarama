@@ -1,4 +1,5 @@
 import ast
+import logging
 import os
 from pathlib import Path
 import struct
@@ -7,19 +8,23 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from udfarama.logging_setup import configure_logging
 from udfarama.search import (
     MatchItem,
     SearchOutcome,
     extract_snippet,
     format_search_status,
+    format_search_status_parts,
     make_match_item,
     normalize_search_text,
     search_udf_folder,
+    should_apply_search_generation,
 )
 
 
@@ -170,7 +175,44 @@ class SearchTests(unittest.TestCase):
 
     def test_cancelled_status_text(self):
         outcome = SearchOutcome([make_match_item("/f", "/f/a.udf")], 0, 0, 0, 0, 0, False, True)
-        self.assertEqual(format_search_status(outcome), "Arama durduruldu: 1 belge bulundu.")
+        self.assertEqual(format_search_status(outcome), "Arama durduruldu: 1 sonuç.")
+
+    def test_skips_xml_parse_when_raw_has_no_term(self):
+        self.document("a.udf", "<root><content>dilekce</content></root>")
+        with patch("udfarama.search.ET.fromstring", wraps=ET.fromstring) as parse:
+            outcome = self.search("karar")
+            parse.assert_not_called()
+        self.assertEqual(outcome.matches, [])
+
+    def test_status_parts_separate_primary_and_detail(self):
+        outcome = SearchOutcome([], 2, 1, 0, 0, 0, False, False)
+        primary, detail = format_search_status_parts(outcome)
+        self.assertEqual(primary, "Arama kısmen tamamlandı: 0 sonuç.")
+        self.assertIn("content.xml yok", detail)
+        self.assertIn("bozuk veya açılamadı", detail)
+        self.assertNotIn("content.xml", primary)
+
+    def test_generation_gate(self):
+        self.assertTrue(should_apply_search_generation(3, 3))
+        self.assertFalse(should_apply_search_generation(3, 2))
+
+
+class LoggingSetupTests(unittest.TestCase):
+    def test_configure_logging_sets_warning_level(self):
+        root = logging.getLogger()
+        saved_handlers = list(root.handlers)
+        saved_level = root.level
+        try:
+            root.handlers.clear()
+            configure_logging()
+            self.assertEqual(root.level, logging.WARNING)
+            self.assertTrue(root.handlers)
+            configure_logging()
+            self.assertEqual(len(root.handlers), 1)
+        finally:
+            root.handlers.clear()
+            root.handlers.extend(saved_handlers)
+            root.setLevel(saved_level)
 
 
 class MainGuardTests(unittest.TestCase):
@@ -205,6 +247,21 @@ class MainGuardTests(unittest.TestCase):
             guarded = True
             self.assertTrue(any(isinstance(child, ast.Raise) for child in node.body))
         self.assertTrue(guarded)
+
+    def test_search_result_from_match_smoke(self):
+        try:
+            import gi
+            gi.require_version("Gtk", "4.0")
+            gi.require_version("Adw", "1")
+        except (ImportError, ValueError):
+            self.skipTest("GTK/Adw unavailable")
+        from udfarama.app import SearchResult
+        from udfarama.search import make_match_item
+        item = make_match_item("/f", "/f/a.udf", "karar metni", "karar")
+        result = SearchResult.from_match(item)
+        self.assertEqual(result.path, item.path)
+        self.assertEqual(result.basename, item.basename)
+        self.assertEqual(result.snippet, item.snippet)
 
 
 if __name__ == "__main__":

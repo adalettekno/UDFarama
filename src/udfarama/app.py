@@ -7,7 +7,12 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, GObject, Pango, Gdk, Adw
 
-from udfarama.search import format_search_status, search_udf_folder
+from udfarama.logging_setup import configure_logging
+from udfarama.search import (
+    format_search_status_parts,
+    search_udf_folder,
+    should_apply_search_generation,
+)
 
 
 APP_ID = "com.adalettekno.UDFarama"
@@ -43,14 +48,19 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         self._search_generation = 0
         self._menu_result = None
         self._result_popover = None
+        self._progress_lock = threading.Lock()
+        self._progress_pending = None
+        self._progress_scheduled = False
+        self._pulse_source = None
 
         self._build_actions()
 
+        self.toast_overlay = Adw.ToastOverlay()
         toolbar = Adw.ToolbarView()
         header = Adw.HeaderBar()
-        title = Gtk.Label(label=APP_NAME)
-        title.add_css_class("title")
-        header.set_title_widget(title)
+        self.title_label = Gtk.Label(label=APP_NAME)
+        self.title_label.add_css_class("title")
+        header.set_title_widget(self.title_label)
 
         self.folder_label = Gtk.Label(label="Arama klasörü seçilmedi", xalign=0)
         self.folder_label.set_ellipsize(Pango.EllipsizeMode.END)
@@ -78,12 +88,21 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         self.search_entry.set_tooltip_text("Arama ifadesi")
         search_row.append(self.search_entry)
 
+        self.spinner = Gtk.Spinner()
+        self.spinner.set_visible(False)
+        search_row.append(self.spinner)
+
         self.search_button = Gtk.Button(label="Ara")
         self.search_button.add_css_class("suggested-action")
         self.search_button.connect("clicked", self.on_search_button)
         self.search_button.set_tooltip_text("Ara veya taramayı durdur")
         search_row.append(self.search_button)
         content.append(search_row)
+
+        self.progress = Gtk.ProgressBar()
+        self.progress.set_visible(False)
+        self.progress.set_pulse_step(0.1)
+        content.append(self.progress)
 
         self.status = Gtk.Label(label="Önce bir klasör seçin.", xalign=0)
         self.status.add_css_class("dim-label")
@@ -118,7 +137,8 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         content.append(self.stack)
 
         toolbar.set_content(content)
-        self.set_content(toolbar)
+        self.toast_overlay.set_child(toolbar)
+        self.set_content(self.toast_overlay)
 
         shortcuts = Gtk.ShortcutController()
         shortcuts.set_scope(Gtk.ShortcutScope.MANAGED)
@@ -134,6 +154,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
 
         self.load_saved_folder()
         self._update_empty_state()
+        self._update_title_count(0)
 
     def _build_actions(self):
         choose = Gio.SimpleAction.new("choose-folder", None)
@@ -160,6 +181,9 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         title = Gtk.Label(xalign=0)
         title.set_ellipsize(Pango.EllipsizeMode.END)
+        attrs = Pango.AttrList()
+        attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
+        title.set_attributes(attrs)
         relative = Gtk.Label(xalign=0)
         relative.add_css_class("dim-label")
         relative.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
@@ -219,7 +243,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
 
     def _copy_path_text(self, path):
         self.get_clipboard().set(path)
-        self.status.set_text("Yol panoya kopyalandı.")
+        self._set_status_primary("Yol panoya kopyalandı.")
 
     def _copy_menu_path(self):
         if self._menu_result is None or not self._menu_result.path:
@@ -260,6 +284,24 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         dialog = Gtk.AlertDialog(message=message)
         dialog.show(self)
 
+    def _set_status_primary(self, text):
+        self.status.set_text(text)
+
+    def _show_detail_toast(self, detail):
+        if not detail:
+            return
+        toast = Adw.Toast.new(detail)
+        toast.set_timeout(6)
+        self.toast_overlay.add_toast(toast)
+
+    def _update_title_count(self, count):
+        if count > 0:
+            self.title_label.set_text(f"{APP_NAME} — {count} sonuç")
+            self.set_title(f"{APP_NAME} — {count} sonuç")
+        else:
+            self.title_label.set_text(APP_NAME)
+            self.set_title(APP_NAME)
+
     def _set_folder_display(self, path):
         if not path:
             self.folder_label.set_text("Arama klasörü seçilmedi")
@@ -295,11 +337,11 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         if os.path.isdir(path):
             self.selected_folder = path
             self._set_folder_display(path)
-            self.status.set_text("Kayıtlı klasör hazır. Arama yapabilirsiniz.")
+            self._set_status_primary("Kayıtlı klasör hazır. Arama yapabilirsiniz.")
             return
         self.selected_folder = None
         self._set_folder_display(None)
-        self.status.set_text("Kayıtlı klasör bulunamadı. Lütfen yeniden klasör seçin.")
+        self._set_status_primary("Kayıtlı klasör bulunamadı. Lütfen yeniden klasör seçin.")
         self.show_error("Kayıtlı arama klasörü artık yok veya erişilemiyor. Lütfen yeniden klasör seçin.")
         self.choose_folder()
 
@@ -329,7 +371,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         self.selected_folder = path
         self._set_folder_display(path)
         self.save_folder(path)
-        self.status.set_text("Klasör seçildi. Aramak istediğiniz ifadeyi girin.")
+        self._set_status_primary("Klasör seçildi. Aramak istediğiniz ifadeyi girin.")
 
     def on_search_button(self, *_):
         if self.searching:
@@ -347,11 +389,31 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             self.search_button.set_label("Durdur")
             self.search_button.remove_css_class("suggested-action")
             self.search_button.add_css_class("destructive-action")
+            self.spinner.set_visible(True)
+            self.spinner.start()
+            self.progress.set_visible(True)
+            self.progress.pulse()
+            if self._pulse_source is None:
+                self._pulse_source = GLib.timeout_add(120, self._pulse_progress)
         else:
             self.search_button.set_label("Ara")
             self.search_button.remove_css_class("destructive-action")
             self.search_button.add_css_class("suggested-action")
+            self.spinner.stop()
+            self.spinner.set_visible(False)
+            self.progress.set_visible(False)
+            self.progress.set_fraction(0)
+            if self._pulse_source is not None:
+                GLib.source_remove(self._pulse_source)
+                self._pulse_source = None
         self.search_button.set_sensitive(True)
+
+    def _pulse_progress(self):
+        if not self.searching:
+            self._pulse_source = None
+            return GLib.SOURCE_REMOVE
+        self.progress.pulse()
+        return GLib.SOURCE_CONTINUE
 
     def start_search(self, *_):
         if self.searching:
@@ -370,10 +432,14 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         self.searching = True
         self._cancel_event.clear()
         self._search_generation += 1
+        with self._progress_lock:
+            self._progress_pending = None
+            self._progress_scheduled = False
         self._set_search_button_searching(True)
         self.model.splice(0, self.model.get_n_items(), [])
         self._update_empty_state()
-        self.status.set_text("UDF dosyaları taranıyor…")
+        self._update_title_count(0)
+        self._set_status_primary("UDF dosyaları taranıyor…")
         threading.Thread(target=self._search_worker, args=(self.selected_folder, term), daemon=True).start()
 
     def _search_worker(self, folder, term):
@@ -381,26 +447,44 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         cancel_event = self._cancel_event
 
         def on_progress(scanned, match_count):
-            GLib.idle_add(self._search_progress, generation, scanned, match_count)
+            with self._progress_lock:
+                self._progress_pending = (generation, scanned, match_count)
+                if self._progress_scheduled:
+                    return
+                self._progress_scheduled = True
+            GLib.idle_add(self._flush_progress)
 
         outcome = search_udf_folder(
             folder, term, cancel_event=cancel_event, on_progress=on_progress)
         GLib.idle_add(self._search_finished, generation, outcome)
 
-    def _search_progress(self, generation, scanned, match_count):
-        if generation != self._search_generation or not self.searching:
+    def _flush_progress(self):
+        with self._progress_lock:
+            pending = self._progress_pending
+            self._progress_pending = None
+            self._progress_scheduled = False
+        if pending is None:
             return GLib.SOURCE_REMOVE
-        self.status.set_text(f"{scanned} dosya tarandı, {match_count} eşleşme")
+        generation, scanned, match_count = pending
+        if not should_apply_search_generation(self._search_generation, generation):
+            return GLib.SOURCE_REMOVE
+        if not self.searching:
+            return GLib.SOURCE_REMOVE
+        self._set_status_primary(f"{scanned} dosya tarandı, {match_count} eşleşme")
+        self._update_title_count(match_count)
         return GLib.SOURCE_REMOVE
 
     def _search_finished(self, generation, outcome):
-        if generation != self._search_generation:
+        if not should_apply_search_generation(self._search_generation, generation):
             return GLib.SOURCE_REMOVE
         try:
             self._has_searched = True
             for match in outcome.matches:
                 self.model.append(SearchResult.from_match(match))
-            self.status.set_text(format_search_status(outcome))
+            primary, detail = format_search_status_parts(outcome)
+            self._set_status_primary(primary)
+            self._show_detail_toast(detail)
+            self._update_title_count(len(outcome.matches))
             self._update_empty_state()
         finally:
             self.searching = False
@@ -426,4 +510,5 @@ class UDFaramaApp(Adw.Application):
 
 
 def run_app(argv=None):
+    configure_logging()
     return UDFaramaApp().run(argv)
