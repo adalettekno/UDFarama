@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import os
 import logging
 import lzma
@@ -19,7 +18,6 @@ APP_NAME = "UDF Belge Arama"
 
 
 def normalize_search_text(text):
-    # Türkçe I/ı ve İ/i çiftlerini, birleşik Unicode yazımlarını koruyarak eşleştir.
     return unicodedata.normalize("NFC", text).translate(str.maketrans({"I": "ı", "İ": "i"})).casefold()
 
 
@@ -175,7 +173,6 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
                             root = ET.fromstring(text)
                             text = "\n".join(t for t in root.itertext() if t)
                         except ET.ParseError:
-                            # Eski/bozuk XML yapılarında yine de düz metin aramasını dene.
                             pass
                         if lowered in normalize_search_text(text):
                             matches.append(path)
@@ -183,7 +180,6 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
                             EOFError, zlib.error, lzma.LZMAError):
                         errors += 1
         except Exception:
-            # Beklenmeyen bir hata da arayüzü meşgul durumda bırakmamalı.
             logging.exception("UDF araması tamamlanamadı")
             failed = True
         finally:
@@ -232,5 +228,5 @@ class UdfAramaApp(Gtk.Application):
         win.present()
 
 
-app = UdfAramaApp()
-app.run()
+def run_app(argv=None):
+    return UdfAramaApp().run(argv)

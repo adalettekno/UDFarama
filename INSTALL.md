@@ -1,0 +1,43 @@
+# Kurulum
+
+`UdfArama.deb` dosyasını yazılım kurucusuyla açın. Kurucu açmazsa, dosyanın bulunduğu dizinde:
+
+```sh
+sudo apt install ./UdfArama.deb
+```
+
+Kurulum bitince UDF Belge Arama uygulama menüsünde görünür. Masaüstüne kısayol konmaz.
+
+Gereksinimler paket bağımlılıklarıyla gelir: Python 3, PyGObject ve GTK 4.
+
+Paket Debian ve Ubuntu tabanlı sistemler içindir. amd64 paketi 64 bit Intel ve AMD içindir. ARM makinede o paketi kurmayın.
+
+# Kaldırma
+
+Önce uygulamayı kapatın.
+
+```sh
+sudo apt remove udfarama
+```
+
+Kayıtlı arama klasörü yolu (`~/.config/com.adalettekno.UdfArama/`) paketlenmez; isterseniz elle silebilirsiniz.
+
+# Derleme
+
+`dpkg-deb` kurulu olsun. Depo kökünde:
+
+```sh
+python3 tools/build_deb.py
+```
+
+Paket `dist/amd64/UdfArama.deb` olarak yazılır. Mimari farklıysa klasörün adı değişir. Derleme komutu paketi kurmaz.
+
+# Geliştirme kısayolu
+
+Paket kurmadan menü girişi için (depo kökünde):
+
+```sh
+python3 tools/install_desktop.py
+```
+
+Bu, kaynak ağacını `PYTHONPATH` ile açan bir kullanıcı menü kısayolu yazar.
