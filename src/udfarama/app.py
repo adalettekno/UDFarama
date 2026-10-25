@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 
 import gi
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Gio, GLib
+from gi.repository import Gtk, Gio, GLib, Pango
 
 
 APP_ID = "com.adalettekno.UDFarama"
@@ -40,7 +40,6 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
 
         self.folder_label = Gtk.Label(label="Arama klasörü seçilmedi", xalign=0)
         self.folder_label.set_hexpand(True)
-        from gi.repository import Pango
         self.folder_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
         header.append(self.folder_label)
 
