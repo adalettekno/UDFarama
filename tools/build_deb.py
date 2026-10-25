@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-ICON_NAME = "com.adalettekno.UdfArama"
+ICON_NAME = "com.adalettekno.UDFarama"
 APP_LIB = "/usr/lib/udfarama"
 
 
@@ -27,7 +27,7 @@ def build(version=None):
     arch = subprocess.check_output(["dpkg", "--print-architecture"], text=True).strip()
     output = ROOT / "dist" / arch
     output.mkdir(parents=True, exist_ok=True)
-    target = output / "UdfArama.deb"
+    target = output / "UDFarama.deb"
     with tempfile.TemporaryDirectory(prefix="udfarama-deb-") as folder:
         stage = Path(folder)
         app = stage / "usr/lib/udfarama"
@@ -58,7 +58,7 @@ def build(version=None):
         desktop = (
             "[Desktop Entry]\n"
             "Type=Application\n"
-            "Name=UDF Belge Arama\n"
+            "Name=UDFarama\n"
             "Comment=UYAP Doküman Editörü dosyalarında içerik arama programı\n"
             "Exec=udfarama\n"
             f"Icon={ICON_NAME}\n"
@@ -86,7 +86,7 @@ def build(version=None):
             f"Installed-Size: {(size + 1023) // 1024}\n"
             "Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0\n"
             "Description: UYAP UDF belgelerinde hızlı içerik araması\n"
-            " UDF Belge Arama, UYAP Doküman Editörü .udf dosyalarının\n"
+            " UDFarama, UYAP Doküman Editörü .udf dosyalarının\n"
             " içeriğinde klasör ve alt klasörler dahil arama yapar.\n"
         )
         checksums = []

@@ -13,7 +13,7 @@ applications = base / "applications"
 for directory in (icons, assets, applications):
     directory.mkdir(parents=True, exist_ok=True)
 
-icon_name = "com.adalettekno.UdfArama"
+icon_name = "com.adalettekno.UDFarama"
 shutil.copyfile(
     root / "data/app-icons/hicolor/scalable/apps" / f"{icon_name}.svg",
     icons / f"{icon_name}.svg",
@@ -39,7 +39,7 @@ desktop = applications / f"{icon_name}.desktop"
 desktop.write_text(
     "[Desktop Entry]\n"
     "Type=Application\n"
-    "Name=UDF Belge Arama\n"
+    "Name=UDFarama\n"
     "Comment=UYAP Doküman Editörü dosyalarında içerik arama programı\n"
     f'Exec="{command}"\n'
     f"Icon={icon_name}\n"

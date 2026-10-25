@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>com.adalettekno.UdfArama</id>
+  <id>com.adalettekno.UDFarama</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <name>UDF Belge Arama</name>
+  <name>UDFarama</name>
   <summary>UYAP UDF belgelerinde hızlı içerik araması</summary>
   <description>
     <p>UYAP Doküman Editörü tarafından oluşturulan UDF belgelerinin içeriğinde klasör ve alt klasörler dahil arama yapar.</p>
@@ -16,8 +16,8 @@
   </developer>
   <url type="homepage">https://www.adalettekno.com/</url>
   <url type="bugtracker">https://github.com/adalettekno/com.adalettekno.UdfArama/issues</url>
-  <launchable type="desktop-id">com.adalettekno.UdfArama.desktop</launchable>
-  <icon type="stock">com.adalettekno.UdfArama</icon>
+  <launchable type="desktop-id">com.adalettekno.UDFarama.desktop</launchable>
+  <icon type="stock">com.adalettekno.UDFarama</icon>
   <provides>
     <binary>udfarama</binary>
   </provides>
@@ -28,7 +28,7 @@
   <screenshots>
     <screenshot type="default">
       <image>https://raw.githubusercontent.com/adalettekno/com.adalettekno.UdfArama/1.0.0/data/screenshots/udfarama-main.png</image>
-      <caption xml:lang="tr">UDF Belge Arama uygulamasının ana penceresi</caption>
+      <caption xml:lang="tr">UDFarama uygulamasının ana penceresi</caption>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>

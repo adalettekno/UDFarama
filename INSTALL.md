@@ -1,12 +1,12 @@
 # Kurulum
 
-`UdfArama.deb` dosyasını yazılım kurucusuyla açın. Kurucu açmazsa, dosyanın bulunduğu dizinde:
+`UDFarama.deb` dosyasını yazılım kurucusuyla açın. Kurucu açmazsa, dosyanın bulunduğu dizinde:
 
 ```sh
-sudo apt install ./UdfArama.deb
+sudo apt install ./UDFarama.deb
 ```
 
-Kurulum bitince UDF Belge Arama uygulama menüsünde görünür. Masaüstüne kısayol konmaz.
+Kurulum bitince UDFarama uygulama menüsünde görünür. Masaüstüne kısayol konmaz.
 
 Gereksinimler paket bağımlılıklarıyla gelir: Python 3, PyGObject ve GTK 4.
 
@@ -20,7 +20,7 @@ Paket Debian ve Ubuntu tabanlı sistemler içindir. amd64 paketi 64 bit Intel ve
 sudo apt remove udfarama
 ```
 
-Kayıtlı arama klasörü yolu (`~/.config/com.adalettekno.UdfArama/`) paketlenmez; isterseniz elle silebilirsiniz.
+Kayıtlı arama klasörü yolu (`~/.config/com.adalettekno.UDFarama/`) paketlenmez; isterseniz elle silebilirsiniz.
 
 # Derleme
 
@@ -30,7 +30,7 @@ Kayıtlı arama klasörü yolu (`~/.config/com.adalettekno.UdfArama/`) paketlenm
 python3 tools/build_deb.py
 ```
 
-Paket `dist/amd64/UdfArama.deb` olarak yazılır. Mimari farklıysa klasörün adı değişir. Derleme komutu paketi kurmaz.
+Paket `dist/amd64/UDFarama.deb` olarak yazılır. Mimari farklıysa klasörün adı değişir. Derleme komutu paketi kurmaz.
 
 # Geliştirme kısayolu
 

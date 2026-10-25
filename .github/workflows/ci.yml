@@ -21,11 +21,11 @@ jobs:
       - name: Validate package contents
         run: |
           arch="$(dpkg --print-architecture)"
-          package="dist/${arch}/UdfArama.deb"
+          package="dist/${arch}/UDFarama.deb"
           test -f "$package"
           dpkg-deb -I "$package"
-          dpkg-deb -c "$package" | grep -E 'usr/bin/udfarama|usr/lib/udfarama/src/udfarama/__main__.py|com.adalettekno.UdfArama.desktop'
+          dpkg-deb -c "$package" | grep -E 'usr/bin/udfarama|usr/lib/udfarama/src/udfarama/__main__.py|com.adalettekno.UDFarama.desktop'
       - uses: actions/upload-artifact@v4
         with:
-          name: UdfArama-deb
-          path: dist/*/UdfArama.deb
+          name: UDFarama-deb
+          path: dist/*/UDFarama.deb

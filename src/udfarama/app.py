@@ -13,8 +13,8 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, GLib
 
 
-APP_ID = "com.adalettekno.UdfArama"
-APP_NAME = "UDF Belge Arama"
+APP_ID = "com.adalettekno.UDFarama"
+APP_NAME = "UDFarama"
 
 
 def normalize_search_text(text):
@@ -217,7 +217,7 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
             self.show_error(f"Dosya varsayılan uygulamayla açılamadı:\n{exc}")
 
 
-class UdfAramaApp(Gtk.Application):
+class UDFaramaApp(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
 
@@ -229,4 +229,4 @@ class UdfAramaApp(Gtk.Application):
 
 
 def run_app(argv=None):
-    return UdfAramaApp().run(argv)
+    return UDFaramaApp().run(argv)
