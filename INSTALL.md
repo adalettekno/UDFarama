@@ -8,7 +8,9 @@ sudo apt install ./UDFarama.deb
 
 Kurulum bitince UDFarama uygulama menüsünde görünür. Masaüstüne kısayol konmaz.
 
-Gereksinimler paket bağımlılıklarıyla gelir: Python 3, PyGObject ve GTK 4.
+Uygulama kimliği `com.adalettekno.UDFarama` (masaüstü/metainfo); apt paketi ve komut `udfarama` (küçük harf, Debian kalıbı).
+
+Gereksinimler paket bağımlılıklarıyla gelir: Python 3, PyGObject, GTK 4 ve libadwaita.
 
 Paket Debian ve Ubuntu tabanlı sistemler içindir. amd64 paketi 64 bit Intel ve AMD içindir. ARM makinede o paketi kurmayın.
 

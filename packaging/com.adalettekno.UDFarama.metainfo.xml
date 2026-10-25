@@ -15,7 +15,7 @@
     <name>Adalet Tekno</name>
   </developer>
   <url type="homepage">https://www.adalettekno.com/</url>
-  <url type="bugtracker">https://github.com/adalettekno/com.adalettekno.UdfArama/issues</url>
+  <url type="bugtracker">https://github.com/adalettekno/com.adalettekno.UDFarama/issues</url>
   <launchable type="desktop-id">com.adalettekno.UDFarama.desktop</launchable>
   <icon type="stock">com.adalettekno.UDFarama</icon>
   <provides>
@@ -27,7 +27,7 @@
   </categories>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/adalettekno/com.adalettekno.UdfArama/1.0.0/data/screenshots/udfarama-main.png</image>
+      <image>https://raw.githubusercontent.com/adalettekno/com.adalettekno.UDFarama/1.0.0/data/screenshots/udfarama-main.png</image>
       <caption xml:lang="tr">UDFarama uygulamasının ana penceresi</caption>
     </screenshot>
   </screenshots>
