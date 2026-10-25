@@ -28,7 +28,8 @@ jobs:
           package="dist/${arch}/UDFarama.deb"
           test -f "$package"
           dpkg-deb -I "$package"
-          dpkg-deb -c "$package" | grep -E 'usr/bin/udfarama|usr/lib/udfarama/src/udfarama/__main__.py|com.adalettekno.UDFarama.desktop'
+          dpkg-deb -c "$package" | grep -E 'usr/bin/udfarama|usr/lib/udfarama/src/udfarama/__main__.py|com.adalettekno.UDFarama.desktop|usr/share/doc/udfarama/copyright'
+          dpkg-deb --fsys-tarfile "$package" | tar -xO ./usr/share/doc/udfarama/copyright | grep -F 'Copyright (c) 2026 Adalet Tekno'
       - uses: actions/upload-artifact@v7
         with:
           name: UDFarama-deb

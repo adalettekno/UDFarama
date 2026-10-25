@@ -44,6 +44,9 @@ def build(version=None):
         metadata = stage / "usr/share/metainfo" / f"{ICON_NAME}.metainfo.xml"
         metadata.parent.mkdir(parents=True)
         shutil.copyfile(ROOT / "packaging" / f"{ICON_NAME}.metainfo.xml", metadata)
+        copyright_file = stage / "usr/share/doc/udfarama/copyright"
+        copyright_file.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / "LICENSE", copyright_file)
         launcher = (
             "#!/usr/bin/python3 -I\n"
             "import os\n"
