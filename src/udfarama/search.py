@@ -35,6 +35,31 @@ def normalize_search_text(text):
     return unicodedata.normalize("NFC", text).translate(str.maketrans({"I": "ı", "İ": "i"})).casefold()
 
 
+def _pango_escape(text):
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("'", "&apos;")
+        .replace('"', "&quot;")
+    )
+
+
+def find_normalized_span(text, needle):
+    if not text or not needle:
+        return None
+    needle_len = len(needle)
+    n = len(text)
+    for i in range(n):
+        for j in range(i + 1, n + 1):
+            cand = normalize_search_text(text[i:j])
+            if cand == needle:
+                return i, j
+            if len(cand) >= needle_len:
+                break
+    return None
+
+
 def extract_snippet(text, term, max_len=80):
     needle = normalize_search_text(term)
     if not needle:
@@ -43,11 +68,52 @@ def extract_snippet(text, term, max_len=80):
         stripped = line.strip()
         if not stripped:
             continue
-        if needle in normalize_search_text(stripped):
-            if len(stripped) <= max_len:
-                return stripped
-            return stripped[: max_len - 1] + "…"
+        span = find_normalized_span(stripped, needle)
+        if span is None:
+            continue
+        start, end = span
+        if len(stripped) <= max_len:
+            return stripped
+        match_len = end - start
+        if match_len >= max_len:
+            return stripped[start:start + max_len - 1] + "…"
+        ideal = start - (max_len - match_len) // 2
+        ideal = max(0, min(ideal, len(stripped) - max_len))
+        if start < ideal:
+            ideal = start
+        if end > ideal + max_len:
+            ideal = max(0, end - max_len)
+        if ideal > 0 and start <= ideal:
+            ideal = max(0, start - 1)
+        if ideal + max_len < len(stripped) and end >= ideal + max_len:
+            ideal = max(0, min(ideal, end - (max_len - 1)))
+            ideal = min(ideal, len(stripped) - max_len)
+        chunk = stripped[ideal:ideal + max_len]
+        if ideal > 0:
+            chunk = "…" + chunk[1:]
+        if ideal + max_len < len(stripped):
+            chunk = chunk[:-1] + "…"
+        return chunk
     return ""
+
+
+def format_snippet_markup(snippet, term):
+    if not snippet:
+        return ""
+    needle = normalize_search_text(term)
+    if not needle:
+        return _pango_escape(snippet)
+    span = find_normalized_span(snippet, needle)
+    if span is None:
+        return _pango_escape(snippet)
+    start, end = span
+    return (
+        _pango_escape(snippet[:start])
+        + "<b>"
+        + _pango_escape(snippet[start:end])
+        + "</b>"
+        + _pango_escape(snippet[end:])
+    )
 
 
 def make_match_item(folder, path, text="", term=""):

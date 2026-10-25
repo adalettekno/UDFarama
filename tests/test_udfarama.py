@@ -19,8 +19,10 @@ from udfarama.search import (
     MatchItem,
     SearchOutcome,
     extract_snippet,
+    find_normalized_span,
     format_search_status,
     format_search_status_parts,
+    format_snippet_markup,
     make_match_item,
     normalize_search_text,
     search_udf_folder,
@@ -173,6 +175,22 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(len(snippet), 30)
         self.assertTrue(snippet.endswith("…"))
 
+    def test_extract_snippet_centers_late_match(self):
+        line = "önce " + ("x" * 100) + " karar " + ("y" * 100)
+        snippet = extract_snippet(line, "karar", max_len=80)
+        self.assertEqual(len(snippet), 80)
+        self.assertIn("karar", snippet)
+        self.assertTrue(snippet.startswith("…") or snippet.endswith("…"))
+
+    def test_format_snippet_markup_highlights_term(self):
+        markup = format_snippet_markup("önce karar sonra", "karar")
+        self.assertEqual(markup, "önce <b>karar</b> sonra")
+        escaped = format_snippet_markup("a <b> karar", "karar")
+        self.assertIn("&lt;b&gt;", escaped)
+        self.assertIn("<b>karar</b>", escaped)
+        self.assertIsNotNone(find_normalized_span("İSTANBUL", normalize_search_text("istanbul")))
+        self.assertIn("<b>", format_snippet_markup("İSTANBUL", "istanbul"))
+
     def test_cancelled_status_text(self):
         outcome = SearchOutcome([make_match_item("/f", "/f/a.udf")], 0, 0, 0, 0, 0, False, True)
         self.assertEqual(format_search_status(outcome), "Arama durduruldu: 1 sonuç.")
@@ -272,6 +290,32 @@ class MainGuardTests(unittest.TestCase):
         self.assertEqual(result.path, item.path)
         self.assertEqual(result.basename, item.basename)
         self.assertEqual(result.snippet, item.snippet)
+
+    def test_adw_window_smoke(self):
+        try:
+            import gi
+            gi.require_version("Gtk", "4.0")
+            gi.require_version("Adw", "1")
+            from gi.repository import GLib
+        except (ImportError, ValueError):
+            self.skipTest("GTK/Adw unavailable")
+        if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+            self.skipTest("No display")
+        from udfarama.app import APP_NAME, UDFaramaApp
+        seen = {}
+        app = UDFaramaApp()
+
+        def quit_check():
+            win = app.props.active_window
+            seen["ok"] = win is not None and APP_NAME in (win.get_title() or "")
+            seen["focus"] = hasattr(win, "search_entry") if win else False
+            app.quit()
+            return GLib.SOURCE_REMOVE
+
+        GLib.timeout_add(150, quit_check)
+        self.assertEqual(app.run([]), 0)
+        self.assertTrue(seen.get("ok"))
+        self.assertTrue(seen.get("focus"))
 
 
 if __name__ == "__main__":

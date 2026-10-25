@@ -12,10 +12,14 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Install test and packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dpkg-dev xvfb python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
       - name: Search regression tests
         run: python3 -m unittest discover -s tests -v
-      - name: Install packaging tools
-        run: sudo apt-get update && sudo apt-get install -y dpkg-dev
+      - name: Adw UI smoke
+        run: xvfb-run -a python3 -m unittest tests.test_udfarama.MainGuardTests.test_adw_window_smoke -v
       - name: Build Debian package
         run: python3 tools/build_deb.py
       - name: Validate package contents

@@ -11,6 +11,7 @@ from udfarama import __version__
 from udfarama.logging_setup import configure_logging
 from udfarama.search import (
     format_search_status_parts,
+    format_snippet_markup,
     search_udf_folder,
     should_apply_search_generation,
 )
@@ -48,6 +49,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         self.selected_folder = None
         self.searching = False
         self._has_searched = False
+        self._last_search_term = ""
         self._cancel_event = threading.Event()
         self._search_generation = 0
         self._menu_result = None
@@ -160,6 +162,10 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             Gtk.ShortcutTrigger.parse_string("<Control>o"),
             Gtk.NamedAction.new("win.choose-folder"),
         ))
+        shortcuts.add_shortcut(Gtk.Shortcut.new(
+            Gtk.ShortcutTrigger.parse_string("<Control>f"),
+            Gtk.NamedAction.new("win.focus-search"),
+        ))
         self.add_controller(shortcuts)
 
         self.load_saved_folder()
@@ -190,6 +196,10 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         about = Gio.SimpleAction.new("about", None)
         about.connect("activate", lambda *_: self.show_about())
         self.add_action(about)
+
+        focus_search = Gio.SimpleAction.new("focus-search", None)
+        focus_search.connect("activate", lambda *_: self.search_entry.grab_focus())
+        self.add_action(focus_search)
 
     def show_about(self, *_):
         dialog = Adw.AboutDialog(
@@ -235,7 +245,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         title.set_text(result.basename)
         relative.set_text(result.relative_path)
         if result.snippet:
-            snippet.set_text(result.snippet)
+            snippet.set_markup(format_snippet_markup(result.snippet, self._last_search_term))
             snippet.set_visible(True)
         else:
             snippet.set_text("")
@@ -368,9 +378,11 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             return
         self.selected_folder = None
         self._set_folder_display(None)
-        self._set_status_primary("Kayıtlı klasör bulunamadı. Lütfen yeniden klasör seçin.")
-        self.show_error("Kayıtlı arama klasörü artık yok veya erişilemiyor. Lütfen yeniden klasör seçin.")
-        self.choose_folder()
+        self._set_status_primary("Kayıtlı klasör bulunamadı. Lütfen Klasör Seç ile yeniden seçin.")
+        self.show_error(
+            "Kayıtlı arama klasörü artık yok veya erişilemiyor. "
+            "Lütfen Klasör Seç ile yeniden seçin."
+        )
 
     def save_folder(self, path):
         config_dir = Path(GLib.get_user_config_dir()) / APP_ID
@@ -457,6 +469,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             return
 
         self.searching = True
+        self._last_search_term = term
         self._cancel_event.clear()
         self._search_generation += 1
         with self._progress_lock:
