@@ -27,6 +27,8 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         self.set_default_size(980, 680)
         self.selected_folder = None
         self.searching = False
+        self._cancel_event = threading.Event()
+        self._search_generation = 0
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         root.set_margin_top(18)
@@ -54,7 +56,7 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         root.append(self.search_entry)
 
         self.search_button = Gtk.Button(label="Ara")
-        self.search_button.connect("clicked", self.start_search)
+        self.search_button.connect("clicked", self.on_search_button)
         root.append(self.search_button)
 
         self.status = Gtk.Label(label="Önce bir klasör seçin.", xalign=0)
@@ -125,6 +127,17 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         self.save_folder(path)
         self.status.set_text("Klasör seçildi. Aramak istediğiniz ifadeyi girin.")
 
+    def on_search_button(self, *_):
+        if self.searching:
+            self.stop_search()
+        else:
+            self.start_search()
+
+    def stop_search(self, *_):
+        if not self.searching:
+            return
+        self._cancel_event.set()
+
     def start_search(self, *_):
         if self.searching:
             return
@@ -137,16 +150,23 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
             return
 
         self.searching = True
-        self.search_button.set_sensitive(False)
+        self._cancel_event.clear()
+        self._search_generation += 1
+        self.search_button.set_label("Durdur")
+        self.search_button.set_sensitive(True)
         self.model.splice(0, self.model.get_n_items(), [])
         self.status.set_text("UDF dosyaları taranıyor…")
         threading.Thread(target=self._search_worker, args=(self.selected_folder, term), daemon=True).start()
 
     def _search_worker(self, folder, term):
+        generation = self._search_generation
+        cancel_event = self._cancel_event
         matches = []
         errors = 0
         directory_errors = 0
         failed = False
+        cancelled = False
+        scanned = 0
 
         def on_walk_error(error):
             nonlocal directory_errors
@@ -155,8 +175,14 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         try:
             lowered = normalize_search_text(term)
             for base, dirs, files in os.walk(folder, followlinks=False, onerror=on_walk_error):
+                if cancel_event.is_set():
+                    cancelled = True
+                    break
                 dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(base, d))]
                 for name in files:
+                    if cancel_event.is_set():
+                        cancelled = True
+                        break
                     if not name.lower().endswith(".udf"):
                         continue
                     path = os.path.join(base, name)
@@ -166,6 +192,10 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
                                 data = archive.read("content.xml")
                             except KeyError:
                                 errors += 1
+                                scanned += 1
+                                if scanned == 1 or scanned % 5 == 0:
+                                    GLib.idle_add(
+                                        self._search_progress, generation, scanned, len(matches))
                                 continue
                         text = data.decode("utf-8", errors="replace")
                         try:
@@ -178,21 +208,39 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
                     except (OSError, zipfile.BadZipFile, RuntimeError,
                             EOFError, zlib.error, lzma.LZMAError):
                         errors += 1
+                    scanned += 1
+                    if scanned == 1 or scanned % 5 == 0:
+                        GLib.idle_add(
+                            self._search_progress, generation, scanned, len(matches))
+                if cancelled:
+                    break
         except Exception:
             logging.exception("UDF araması tamamlanamadı")
             failed = True
         finally:
-            GLib.idle_add(self._search_finished, matches, errors, directory_errors, failed)
+            GLib.idle_add(
+                self._search_finished, generation, matches, errors, directory_errors, failed, cancelled)
 
-    def _search_finished(self, matches, errors, directory_errors=0, failed=False):
+    def _search_progress(self, generation, scanned, match_count):
+        if generation != self._search_generation or not self.searching:
+            return GLib.SOURCE_REMOVE
+        self.status.set_text(f"{scanned} dosya tarandı, {match_count} eşleşme")
+        return GLib.SOURCE_REMOVE
+
+    def _search_finished(self, generation, matches, errors, directory_errors=0, failed=False, cancelled=False):
+        if generation != self._search_generation:
+            return GLib.SOURCE_REMOVE
         try:
             for path in matches:
                 self.model.append(path)
-            incomplete = failed or errors or directory_errors
-            message = (
-                f"Arama kısmen tamamlandı: {len(matches)} belge bulundu."
-                if incomplete else f"Arama tamamlandı: {len(matches)} belge bulundu."
-            )
+            if cancelled:
+                message = f"Arama durduruldu: {len(matches)} belge bulundu."
+            else:
+                incomplete = failed or errors or directory_errors
+                message = (
+                    f"Arama kısmen tamamlandı: {len(matches)} belge bulundu."
+                    if incomplete else f"Arama tamamlandı: {len(matches)} belge bulundu."
+                )
             if errors:
                 message += f" {errors} dosya okunamadı."
             if directory_errors:
@@ -202,6 +250,7 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
             self.status.set_text(message)
         finally:
             self.searching = False
+            self.search_button.set_label("Ara")
             self.search_button.set_sensitive(True)
         return GLib.SOURCE_REMOVE
 
