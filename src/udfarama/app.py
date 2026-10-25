@@ -1,24 +1,16 @@
 import os
-import logging
-import lzma
 import threading
-import zipfile
-import zlib
-import unicodedata
 from pathlib import Path
-import xml.etree.ElementTree as ET
 
 import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Gio, GLib, Pango
 
+from udfarama.search import format_search_status, search_udf_folder
+
 
 APP_ID = "com.adalettekno.UDFarama"
 APP_NAME = "UDFarama"
-
-
-def normalize_search_text(text):
-    return unicodedata.normalize("NFC", text).translate(str.maketrans({"I": "ı", "İ": "i"})).casefold()
 
 
 class UdfSearchWindow(Gtk.ApplicationWindow):
@@ -161,65 +153,13 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
     def _search_worker(self, folder, term):
         generation = self._search_generation
         cancel_event = self._cancel_event
-        matches = []
-        errors = 0
-        directory_errors = 0
-        failed = False
-        cancelled = False
-        scanned = 0
 
-        def on_walk_error(error):
-            nonlocal directory_errors
-            directory_errors += 1
+        def on_progress(scanned, match_count):
+            GLib.idle_add(self._search_progress, generation, scanned, match_count)
 
-        try:
-            lowered = normalize_search_text(term)
-            for base, dirs, files in os.walk(folder, followlinks=False, onerror=on_walk_error):
-                if cancel_event.is_set():
-                    cancelled = True
-                    break
-                dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(base, d))]
-                for name in files:
-                    if cancel_event.is_set():
-                        cancelled = True
-                        break
-                    if not name.lower().endswith(".udf"):
-                        continue
-                    path = os.path.join(base, name)
-                    try:
-                        with zipfile.ZipFile(path) as archive:
-                            try:
-                                data = archive.read("content.xml")
-                            except KeyError:
-                                errors += 1
-                                scanned += 1
-                                if scanned == 1 or scanned % 5 == 0:
-                                    GLib.idle_add(
-                                        self._search_progress, generation, scanned, len(matches))
-                                continue
-                        text = data.decode("utf-8", errors="replace")
-                        try:
-                            root = ET.fromstring(text)
-                            text = "\n".join(t for t in root.itertext() if t)
-                        except ET.ParseError:
-                            pass
-                        if lowered in normalize_search_text(text):
-                            matches.append(path)
-                    except (OSError, zipfile.BadZipFile, RuntimeError,
-                            EOFError, zlib.error, lzma.LZMAError):
-                        errors += 1
-                    scanned += 1
-                    if scanned == 1 or scanned % 5 == 0:
-                        GLib.idle_add(
-                            self._search_progress, generation, scanned, len(matches))
-                if cancelled:
-                    break
-        except Exception:
-            logging.exception("UDF araması tamamlanamadı")
-            failed = True
-        finally:
-            GLib.idle_add(
-                self._search_finished, generation, matches, errors, directory_errors, failed, cancelled)
+        outcome = search_udf_folder(
+            folder, term, cancel_event=cancel_event, on_progress=on_progress)
+        GLib.idle_add(self._search_finished, generation, outcome)
 
     def _search_progress(self, generation, scanned, match_count):
         if generation != self._search_generation or not self.searching:
@@ -227,27 +167,13 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         self.status.set_text(f"{scanned} dosya tarandı, {match_count} eşleşme")
         return GLib.SOURCE_REMOVE
 
-    def _search_finished(self, generation, matches, errors, directory_errors=0, failed=False, cancelled=False):
+    def _search_finished(self, generation, outcome):
         if generation != self._search_generation:
             return GLib.SOURCE_REMOVE
         try:
-            for path in matches:
+            for path in outcome.matches:
                 self.model.append(path)
-            if cancelled:
-                message = f"Arama durduruldu: {len(matches)} belge bulundu."
-            else:
-                incomplete = failed or errors or directory_errors
-                message = (
-                    f"Arama kısmen tamamlandı: {len(matches)} belge bulundu."
-                    if incomplete else f"Arama tamamlandı: {len(matches)} belge bulundu."
-                )
-            if errors:
-                message += f" {errors} dosya okunamadı."
-            if directory_errors:
-                message += f" {directory_errors} klasör taranamadı."
-            if failed:
-                message += " Beklenmeyen bir hata nedeniyle tarama durdu; yeniden deneyin."
-            self.status.set_text(message)
+            self.status.set_text(format_search_status(outcome))
         finally:
             self.searching = False
             self.search_button.set_label("Ara")
