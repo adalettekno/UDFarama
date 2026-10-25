@@ -5,7 +5,7 @@ Sürüm: UDFarama 1.0.0
 `UDFarama.deb` dosyasını yazılım kurucusuyla açın. Kurucu açmazsa, dosyanın bulunduğu dizinde:
 
 ```sh
-sudo apt install ./UDFarama.deb
+sudo apt install ./UDFarama_1.0.0_amd64.deb
 ```
 
 Kurulum bitince UDFarama uygulama menüsünde görünür. Masaüstüne kısayol konmaz.
