@@ -165,5 +165,39 @@ class SearchTests(unittest.TestCase):
         self.assertTrue(self.ui.searching)
 
 
+class MainGuardTests(unittest.TestCase):
+    root = Path(__file__).resolve().parents[1]
+
+    def test_app_module_has_no_toplevel_run(self):
+        tree = ast.parse((self.root / "src/udfarama/app.py").read_text())
+        for node in tree.body:
+            if not isinstance(node, ast.Expr) or not isinstance(node.value, ast.Call):
+                continue
+            call = node.value
+            name = ""
+            if isinstance(call.func, ast.Name):
+                name = call.func.id
+            elif isinstance(call.func, ast.Attribute):
+                name = call.func.attr
+            if name in ("run", "run_app"):
+                self.fail("app.py must not start the UI at module level")
+
+    def test_main_module_guards_entry(self):
+        tree = ast.parse((self.root / "src/udfarama/__main__.py").read_text())
+        for node in tree.body:
+            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call):
+                self.fail("__main__.py must not invoke calls outside the name guard")
+        guarded = False
+        for node in tree.body:
+            if not isinstance(node, ast.If):
+                continue
+            test = node.test
+            if not (isinstance(test, ast.Compare) and isinstance(test.left, ast.Name) and test.left.id == "__name__"):
+                continue
+            guarded = True
+            self.assertTrue(any(isinstance(child, ast.Raise) for child in node.body))
+        self.assertTrue(guarded)
+
+
 if __name__ == "__main__":
     unittest.main()
