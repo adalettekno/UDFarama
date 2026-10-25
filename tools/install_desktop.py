@@ -7,7 +7,7 @@ root = Path(__file__).resolve().parents[1]
 base = Path(os.environ.get("XDG_DATA_HOME", ""))
 if not base.is_absolute():
     base = Path.home() / ".local/share"
-icons = base / "icons/hicolor/scalable/apps"
+icons = base / "icons/hicolor/512x512/apps"
 assets = base / "udfarama"
 applications = base / "applications"
 for directory in (icons, assets, applications):
@@ -15,9 +15,10 @@ for directory in (icons, assets, applications):
 
 icon_name = "com.adalettekno.UDFarama"
 shutil.copyfile(
-    root / "data/app-icons/hicolor/scalable/apps" / f"{icon_name}.svg",
-    icons / f"{icon_name}.svg",
+    root / "data/app-icons/hicolor/512x512/apps/udfarama.png",
+    icons / f"{icon_name}.png",
 )
+shutil.copyfile(root / "data/app-icons/udfarama.ico", assets / "udfarama.ico")
 
 launcher = assets / "launch"
 launcher.write_text(
@@ -49,4 +50,5 @@ desktop.write_text(
     f"StartupWMClass={icon_name}\n"
 )
 print("Menü kısayolu:", desktop)
-print("SVG simgesi:", icons / f"{icon_name}.svg")
+print("PNG simgesi:", icons / f"{icon_name}.png")
+print("ICO kaynağı:", assets / "udfarama.ico")

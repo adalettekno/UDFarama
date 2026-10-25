@@ -37,8 +37,8 @@ def build(version=None):
             app / "src/udfarama",
             ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
         )
-        icon_src = ROOT / "data/app-icons/hicolor/scalable/apps" / f"{ICON_NAME}.svg"
-        icon = stage / "usr/share/icons/hicolor/scalable/apps" / f"{ICON_NAME}.svg"
+        icon_src = ROOT / "data/app-icons/hicolor/512x512/apps/udfarama.png"
+        icon = stage / "usr/share/icons/hicolor/512x512/apps" / f"{ICON_NAME}.png"
         icon.parent.mkdir(parents=True)
         shutil.copyfile(icon_src, icon)
         metadata = stage / "usr/share/metainfo" / f"{ICON_NAME}.metainfo.xml"
