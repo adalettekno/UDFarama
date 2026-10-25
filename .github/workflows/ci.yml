@@ -11,11 +11,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install test and packaging dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y dpkg-dev xvfb python3-gi gir1.2-gtk-4.0 gir1.2-adw-1
+          sudo apt-get install -y dpkg-dev xvfb python3-gi python3-pil gir1.2-gtk-4.0 gir1.2-adw-1
       - name: Search regression tests
         run: python3 -m unittest discover -s tests -v
       - name: Adw UI smoke
@@ -29,7 +29,7 @@ jobs:
           test -f "$package"
           dpkg-deb -I "$package"
           dpkg-deb -c "$package" | grep -E 'usr/bin/udfarama|usr/lib/udfarama/src/udfarama/__main__.py|com.adalettekno.UDFarama.desktop'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: UDFarama-deb
           path: dist/*/UDFarama.deb
