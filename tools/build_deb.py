@@ -84,7 +84,7 @@ def build(version=None):
             "Maintainer: Adalet Tekno\nHomepage: https://www.adalettekno.com/\n"
             "Section: utils\nPriority: optional\n"
             f"Installed-Size: {(size + 1023) // 1024}\n"
-            "Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0\n"
+            "Depends: python3 (>= 3.10), python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1\n"
             "Description: UYAP UDF belgelerinde hızlı içerik araması\n"
             " UDFarama, UYAP Doküman Editörü .udf dosyalarının\n"
             " içeriğinde klasör ve alt klasörler dahil arama yapar.\n"

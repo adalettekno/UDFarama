@@ -4,7 +4,8 @@ from pathlib import Path
 
 import gi
 gi.require_version("Gtk", "4.0")
-from gi.repository import Gtk, Gio, GLib, GObject, Pango
+gi.require_version("Adw", "1")
+from gi.repository import Gtk, Gio, GLib, GObject, Pango, Gdk, Adw
 
 from udfarama.search import format_search_status, search_udf_folder
 
@@ -31,50 +32,63 @@ class SearchResult(GObject.Object):
         )
 
 
-class UdfSearchWindow(Gtk.ApplicationWindow):
+class UdfSearchWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title=APP_NAME)
         self.set_default_size(980, 680)
         self.selected_folder = None
         self.searching = False
+        self._has_searched = False
         self._cancel_event = threading.Event()
         self._search_generation = 0
+        self._menu_result = None
+        self._result_popover = None
 
-        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        root.set_margin_top(18)
-        root.set_margin_bottom(18)
-        root.set_margin_start(18)
-        root.set_margin_end(18)
-        self.set_child(root)
+        self._build_actions()
 
-        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        root.append(header)
+        toolbar = Adw.ToolbarView()
+        header = Adw.HeaderBar()
+        title = Gtk.Label(label=APP_NAME)
+        title.add_css_class("title")
+        header.set_title_widget(title)
 
         self.folder_label = Gtk.Label(label="Arama klasörü seçilmedi", xalign=0)
-        self.folder_label.set_hexpand(True)
-        self.folder_label.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
-        header.append(self.folder_label)
-
+        self.folder_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.folder_label.set_max_width_chars(28)
         choose_btn = Gtk.Button(label="Klasör Seç")
-        choose_btn.connect("clicked", self.choose_folder)
-        header.append(choose_btn)
+        choose_btn.set_action_name("win.choose-folder")
+        choose_btn.set_tooltip_text("Arama klasörü seç (Ctrl+O)")
+        folder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        folder_box.append(self.folder_label)
+        folder_box.append(choose_btn)
+        header.pack_end(folder_box)
+        toolbar.add_top_bar(header)
 
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        content.set_margin_top(18)
+        content.set_margin_bottom(18)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+
+        search_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.search_entry = Gtk.Entry()
         self.search_entry.set_placeholder_text("Aranacak kelime veya ifade")
         self.search_entry.set_hexpand(True)
         self.search_entry.connect("activate", self.start_search)
-        root.append(self.search_entry)
+        self.search_entry.set_tooltip_text("Arama ifadesi")
+        search_row.append(self.search_entry)
 
         self.search_button = Gtk.Button(label="Ara")
+        self.search_button.add_css_class("suggested-action")
         self.search_button.connect("clicked", self.on_search_button)
-        root.append(self.search_button)
+        self.search_button.set_tooltip_text("Ara veya taramayı durdur")
+        search_row.append(self.search_button)
+        content.append(search_row)
 
         self.status = Gtk.Label(label="Önce bir klasör seçin.", xalign=0)
-        root.append(self.status)
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        root.append(scrolled)
+        self.status.add_css_class("dim-label")
+        self.status.set_wrap(True)
+        content.append(self.status)
 
         self.model = Gio.ListStore.new(SearchResult)
         self.list_view = Gtk.ListView.new(
@@ -85,32 +99,189 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         factory.connect("setup", self._setup_item)
         factory.connect("bind", self._bind_item)
         self.list_view.connect("activate", self.open_selected)
+        self.list_view.set_tab_behavior(Gtk.ListTabBehavior.ITEM)
+
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
         scrolled.set_child(self.list_view)
 
+        self.empty_page = Adw.StatusPage(
+            icon_name="system-search-symbolic",
+            title="Henüz arama yok",
+            description="Bir klasör seçip aranacak ifadeyi girin, ardından Ara’ya basın.",
+        )
+        self.stack = Gtk.Stack()
+        self.stack.set_vexpand(True)
+        self.stack.add_named(self.empty_page, "empty")
+        self.stack.add_named(scrolled, "results")
+        self.stack.set_visible_child_name("empty")
+        content.append(self.stack)
+
+        toolbar.set_content(content)
+        self.set_content(toolbar)
+
+        shortcuts = Gtk.ShortcutController()
+        shortcuts.set_scope(Gtk.ShortcutScope.MANAGED)
+        shortcuts.add_shortcut(Gtk.Shortcut.new(
+            Gtk.ShortcutTrigger.parse_string("Escape"),
+            Gtk.NamedAction.new("win.cancel-search"),
+        ))
+        shortcuts.add_shortcut(Gtk.Shortcut.new(
+            Gtk.ShortcutTrigger.parse_string("<Control>o"),
+            Gtk.NamedAction.new("win.choose-folder"),
+        ))
+        self.add_controller(shortcuts)
+
         self.load_saved_folder()
+        self._update_empty_state()
+
+    def _build_actions(self):
+        choose = Gio.SimpleAction.new("choose-folder", None)
+        choose.connect("activate", lambda *_: self.choose_folder())
+        self.add_action(choose)
+
+        cancel = Gio.SimpleAction.new("cancel-search", None)
+        cancel.connect("activate", lambda *_: self.stop_search())
+        self.add_action(cancel)
+
+        copy_path = Gio.SimpleAction.new("copy-result-path", None)
+        copy_path.connect("activate", lambda *_: self._copy_menu_path())
+        self.add_action(copy_path)
+
+        open_folder = Gio.SimpleAction.new("open-result-folder", None)
+        open_folder.connect("activate", lambda *_: self._open_menu_folder())
+        self.add_action(open_folder)
+
+        open_file = Gio.SimpleAction.new("open-result-file", None)
+        open_file.connect("activate", lambda *_: self._open_menu_file())
+        self.add_action(open_file)
 
     def _setup_item(self, factory, item):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         title = Gtk.Label(xalign=0)
         title.set_ellipsize(Pango.EllipsizeMode.END)
-        subtitle = Gtk.Label(xalign=0)
-        subtitle.add_css_class("dim-label")
-        subtitle.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        relative = Gtk.Label(xalign=0)
+        relative.add_css_class("dim-label")
+        relative.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        snippet = Gtk.Label(xalign=0)
+        snippet.add_css_class("dim-label")
+        snippet.set_ellipsize(Pango.EllipsizeMode.END)
         box.append(title)
-        box.append(subtitle)
+        box.append(relative)
+        box.append(snippet)
+        gesture = Gtk.GestureClick()
+        gesture.set_button(Gdk.BUTTON_SECONDARY)
+        gesture.connect("pressed", self._on_item_secondary, item)
+        box.add_controller(gesture)
         item.set_child(box)
 
     def _bind_item(self, factory, item):
         result = item.get_item()
         box = item.get_child()
         title = box.get_first_child()
-        subtitle = title.get_next_sibling()
+        relative = title.get_next_sibling()
+        snippet = relative.get_next_sibling()
         title.set_text(result.basename)
-        subtitle.set_text(result.relative_path)
+        relative.set_text(result.relative_path)
+        if result.snippet:
+            snippet.set_text(result.snippet)
+            snippet.set_visible(True)
+        else:
+            snippet.set_text("")
+            snippet.set_visible(False)
+        box.set_tooltip_text(result.path)
+        label = result.basename
+        if result.relative_path:
+            label = f"{result.basename}, {result.relative_path}"
+        if result.snippet:
+            label = f"{label}, {result.snippet}"
+        box.update_property([Gtk.AccessibleProperty.LABEL], [label])
+
+    def _on_item_secondary(self, gesture, n_press, x, y, list_item):
+        result = list_item.get_item()
+        if result is None:
+            return
+        self._show_result_menu(result, list_item.get_child())
+
+    def _show_result_menu(self, result, anchor):
+        self._menu_result = result
+        if self._result_popover is not None:
+            self._result_popover.popdown()
+            self._result_popover.unparent()
+        menu = Gio.Menu()
+        menu.append("Yolu kopyala", "win.copy-result-path")
+        menu.append("İçeren klasörü aç", "win.open-result-folder")
+        menu.append("Varsayılan uygulamada aç", "win.open-result-file")
+        popover = Gtk.PopoverMenu.new_from_model(menu)
+        popover.set_parent(anchor)
+        popover.popup()
+        self._result_popover = popover
+
+    def _copy_path_text(self, path):
+        self.get_clipboard().set(path)
+        self.status.set_text("Yol panoya kopyalandı.")
+
+    def _copy_menu_path(self):
+        if self._menu_result is None or not self._menu_result.path:
+            return
+        self._copy_path_text(self._menu_result.path)
+
+    def _open_menu_folder(self):
+        if self._menu_result is None or not self._menu_result.path:
+            return
+        folder = os.path.dirname(self._menu_result.path)
+        if not folder or not os.path.isdir(folder):
+            self.show_error("İçeren klasör açılamadı.")
+            return
+        self._launch_uri(Gio.File.new_for_path(folder).get_uri(), self._menu_result.path)
+
+    def _open_menu_file(self):
+        if self._menu_result is None or not self._menu_result.path:
+            return
+        self._open_path(self._menu_result.path)
+
+    def _launch_uri(self, uri, fallback_path=None):
+        try:
+            Gio.AppInfo.launch_default_for_uri(uri, None)
+        except GLib.Error as exc:
+            if fallback_path:
+                self._copy_path_text(fallback_path)
+                self.show_error(
+                    f"Dosya varsayılan uygulamayla açılamadı; yol panoya kopyalandı.\n{exc}")
+            else:
+                self.show_error(f"Konum açılamadı:\n{exc}")
+
+    def _open_path(self, path):
+        if not path or not os.path.isfile(path):
+            return
+        self._launch_uri(Gio.File.new_for_path(path).get_uri(), path)
 
     def show_error(self, message):
         dialog = Gtk.AlertDialog(message=message)
         dialog.show(self)
+
+    def _set_folder_display(self, path):
+        if not path:
+            self.folder_label.set_text("Arama klasörü seçilmedi")
+            self.folder_label.set_tooltip_text("")
+            return
+        name = os.path.basename(path.rstrip(os.sep)) or path
+        self.folder_label.set_text(name)
+        self.folder_label.set_tooltip_text(path)
+
+    def _update_empty_state(self):
+        if self.model.get_n_items() > 0:
+            self.stack.set_visible_child_name("results")
+            return
+        self.stack.set_visible_child_name("empty")
+        if self._has_searched:
+            self.empty_page.set_title("Sonuç bulunamadı")
+            self.empty_page.set_description(
+                "Farklı bir ifade deneyin veya başka bir klasör seçin.")
+        else:
+            self.empty_page.set_title("Henüz arama yok")
+            self.empty_page.set_description(
+                "Bir klasör seçip aranacak ifadeyi girin, ardından Ara’ya basın.")
 
     def load_saved_folder(self):
         config_dir = Path(GLib.get_user_config_dir()) / APP_ID
@@ -119,10 +290,18 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
             path = path_file.read_text(encoding="utf-8").strip()
         except OSError:
             return
-        if path and os.path.isdir(path):
+        if not path:
+            return
+        if os.path.isdir(path):
             self.selected_folder = path
-            self.folder_label.set_text(path)
+            self._set_folder_display(path)
             self.status.set_text("Kayıtlı klasör hazır. Arama yapabilirsiniz.")
+            return
+        self.selected_folder = None
+        self._set_folder_display(None)
+        self.status.set_text("Kayıtlı klasör bulunamadı. Lütfen yeniden klasör seçin.")
+        self.show_error("Kayıtlı arama klasörü artık yok veya erişilemiyor. Lütfen yeniden klasör seçin.")
+        self.choose_folder()
 
     def save_folder(self, path):
         config_dir = Path(GLib.get_user_config_dir()) / APP_ID
@@ -144,8 +323,11 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         if not path:
             self.show_error("Seçilen konuma erişilebilir bir yerel yol alınamadı.")
             return
+        if not os.path.isdir(path):
+            self.show_error("Seçilen klasör geçerli değil. Lütfen yeniden seçin.")
+            return
         self.selected_folder = path
-        self.folder_label.set_text(path)
+        self._set_folder_display(path)
         self.save_folder(path)
         self.status.set_text("Klasör seçildi. Aramak istediğiniz ifadeyi girin.")
 
@@ -160,11 +342,25 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
             return
         self._cancel_event.set()
 
+    def _set_search_button_searching(self, searching):
+        if searching:
+            self.search_button.set_label("Durdur")
+            self.search_button.remove_css_class("suggested-action")
+            self.search_button.add_css_class("destructive-action")
+        else:
+            self.search_button.set_label("Ara")
+            self.search_button.remove_css_class("destructive-action")
+            self.search_button.add_css_class("suggested-action")
+        self.search_button.set_sensitive(True)
+
     def start_search(self, *_):
         if self.searching:
             return
         if not self.selected_folder or not os.path.isdir(self.selected_folder):
+            self.selected_folder = None
+            self._set_folder_display(None)
             self.show_error("Önce geçerli bir arama klasörü seçin.")
+            self.choose_folder()
             return
         term = self.search_entry.get_text().strip()
         if not term:
@@ -174,9 +370,9 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         self.searching = True
         self._cancel_event.clear()
         self._search_generation += 1
-        self.search_button.set_label("Durdur")
-        self.search_button.set_sensitive(True)
+        self._set_search_button_searching(True)
         self.model.splice(0, self.model.get_n_items(), [])
+        self._update_empty_state()
         self.status.set_text("UDF dosyaları taranıyor…")
         threading.Thread(target=self._search_worker, args=(self.selected_folder, term), daemon=True).start()
 
@@ -201,27 +397,24 @@ class UdfSearchWindow(Gtk.ApplicationWindow):
         if generation != self._search_generation:
             return GLib.SOURCE_REMOVE
         try:
+            self._has_searched = True
             for match in outcome.matches:
                 self.model.append(SearchResult.from_match(match))
             self.status.set_text(format_search_status(outcome))
+            self._update_empty_state()
         finally:
             self.searching = False
-            self.search_button.set_label("Ara")
-            self.search_button.set_sensitive(True)
+            self._set_search_button_searching(False)
         return GLib.SOURCE_REMOVE
 
     def open_selected(self, list_view, position):
         result = self.model.get_item(position)
-        if result is None or not result.path or not os.path.isfile(result.path):
+        if result is None:
             return
-        uri = Gio.File.new_for_path(result.path).get_uri()
-        try:
-            Gio.AppInfo.launch_default_for_uri(uri, None)
-        except GLib.Error as exc:
-            self.show_error(f"Dosya varsayılan uygulamayla açılamadı:\n{exc}")
+        self._open_path(result.path)
 
 
-class UDFaramaApp(Gtk.Application):
+class UDFaramaApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
 
