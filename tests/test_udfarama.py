@@ -49,7 +49,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(match.basename, "test.UDF")
         self.assertEqual(match.relative_path, os.path.join("nested", "test.UDF"))
         self.assertEqual(match.snippet, "karar")
-        self.assertEqual(outcome[1:], (0, 0, False, False))
+        self.assertEqual(outcome[1:], (0, 0, 0, 0, 0, False, False))
 
     def test_turkish_case_and_unicode(self):
         path = self.document("test.udf", "<root>İSTANBUL HAKİM IŞIK</root>")
@@ -61,7 +61,7 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(normalize_search_text("I"), "ı")
         self.assertEqual(self.search("isik").matches, [])
 
-    def test_broken_deflate_does_not_stop_other_files(self):
+    def test_broken_deflate_counts_as_bad_archive(self):
         broken = self.document("broken.udf", "<root>karar</root>")
         data = bytearray(broken.read_bytes())
         name_len, extra_len = struct.unpack_from("<HH", data, 26)
@@ -70,21 +70,41 @@ class SearchTests(unittest.TestCase):
         good = self.document("good.udf", "<root>karar</root>")
         outcome = self.search("karar")
         self.assertEqual([m.path for m in outcome.matches], [str(good)])
-        self.assertEqual(outcome.errors, 1)
-        self.assertIn("1 dosya okunamadı", format_search_status(outcome))
+        self.assertEqual(outcome.bad_archive, 1)
+        self.assertEqual(outcome.missing_content, 0)
+        self.assertIn("1 dosya bozuk veya açılamadı", format_search_status(outcome))
 
-    def test_invalid_zip_and_missing_content(self):
+    def test_invalid_zip_and_missing_content_are_separate(self):
         (self.folder / "invalid.udf").write_text("not a zip")
         with zipfile.ZipFile(self.folder / "missing.udf", "w") as archive:
             archive.writestr("other.xml", "<root/>")
         outcome = self.search("karar")
         self.assertEqual(outcome.matches, [])
-        self.assertEqual(outcome.errors, 2)
+        self.assertEqual(outcome.bad_archive, 1)
+        self.assertEqual(outcome.missing_content, 1)
+        message = format_search_status(outcome)
+        self.assertIn("content.xml yok", message)
+        self.assertIn("bozuk veya açılamadı", message)
 
-    def test_malformed_xml_fallback(self):
+    def test_malformed_xml_fallback_counts_parse(self):
         path = self.document("old.udf", "<root>karar")
         outcome = self.search("karar")
         self.assertEqual([m.path for m in outcome.matches], [str(path)])
+        self.assertEqual(outcome.parse_errors, 1)
+        self.assertIn("XML çözümlenemedi", format_search_status(outcome))
+        self.assertIn("tamamlandı", format_search_status(outcome))
+
+    def test_permission_error_on_file(self):
+        self.document("secret.udf", "<root>karar</root>")
+
+        def deny_open(path, *args, **kwargs):
+            raise PermissionError("permission denied")
+
+        with patch("udfarama.search.zipfile.ZipFile", side_effect=deny_open):
+            outcome = self.search("karar")
+        self.assertEqual(outcome.permission_errors, 1)
+        self.assertEqual(outcome.bad_archive, 0)
+        self.assertIn("izin yok", format_search_status(outcome))
 
     def test_unreadable_directory_is_reported(self):
         original_walk = os.walk
@@ -93,7 +113,7 @@ class SearchTests(unittest.TestCase):
             yield from original_walk(folder, **kwargs)
         with patch.object(os, "walk", denied_walk):
             outcome = self.search("karar")
-        self.assertEqual(outcome, SearchOutcome([], 0, 1, False, False))
+        self.assertEqual(outcome, SearchOutcome([], 0, 0, 0, 0, 1, False, False))
         message = format_search_status(outcome)
         self.assertIn("kısmen", message)
         self.assertIn("1 klasör taranamadı", message)
@@ -102,7 +122,7 @@ class SearchTests(unittest.TestCase):
         with patch.object(os, "walk", side_effect=ValueError("unexpected")):
             with self.assertLogs(level="ERROR"):
                 outcome = self.search("karar")
-        self.assertEqual(outcome, SearchOutcome([], 0, 0, True, False))
+        self.assertEqual(outcome, SearchOutcome([], 0, 0, 0, 0, 0, True, False))
         self.assertIn("tarama durdu", format_search_status(outcome))
 
     def test_progress_reports_scanned_and_matches(self):
@@ -149,7 +169,7 @@ class SearchTests(unittest.TestCase):
         self.assertTrue(snippet.endswith("…"))
 
     def test_cancelled_status_text(self):
-        outcome = SearchOutcome([make_match_item("/f", "/f/a.udf")], 0, 0, False, True)
+        outcome = SearchOutcome([make_match_item("/f", "/f/a.udf")], 0, 0, 0, 0, 0, False, True)
         self.assertEqual(format_search_status(outcome), "Arama durduruldu: 1 belge bulundu.")
 
 

@@ -1,3 +1,4 @@
+import errno
 import logging
 import lzma
 import os
@@ -17,10 +18,17 @@ class MatchItem(NamedTuple):
 
 class SearchOutcome(NamedTuple):
     matches: list
-    errors: int
+    missing_content: int
+    bad_archive: int
+    permission_errors: int
+    parse_errors: int
     directory_errors: int
     failed: bool
     cancelled: bool
+
+    @property
+    def file_failures(self):
+        return self.missing_content + self.bad_archive + self.permission_errors
 
 
 def normalize_search_text(text):
@@ -57,13 +65,19 @@ def format_search_status(outcome: SearchOutcome):
     if outcome.cancelled:
         message = f"Arama durduruldu: {len(matches)} belge bulundu."
     else:
-        incomplete = outcome.failed or outcome.errors or outcome.directory_errors
+        incomplete = outcome.failed or outcome.file_failures or outcome.directory_errors
         message = (
             f"Arama kısmen tamamlandı: {len(matches)} belge bulundu."
             if incomplete else f"Arama tamamlandı: {len(matches)} belge bulundu."
         )
-    if outcome.errors:
-        message += f" {outcome.errors} dosya okunamadı."
+    if outcome.missing_content:
+        message += f" {outcome.missing_content} dosyada content.xml yok."
+    if outcome.bad_archive:
+        message += f" {outcome.bad_archive} dosya bozuk veya açılamadı."
+    if outcome.permission_errors:
+        message += f" {outcome.permission_errors} dosyaya izin yok."
+    if outcome.parse_errors:
+        message += f" {outcome.parse_errors} dosyada XML çözümlenemedi; düz metin arandı."
     if outcome.directory_errors:
         message += f" {outcome.directory_errors} klasör taranamadı."
     if outcome.failed:
@@ -78,7 +92,10 @@ def search_udf_folder(
     on_progress: Optional[Callable[[int, int], None]] = None,
 ):
     matches = []
-    errors = 0
+    missing_content = 0
+    bad_archive = 0
+    permission_errors = 0
+    parse_errors = 0
     directory_errors = 0
     failed = False
     cancelled = False
@@ -91,6 +108,17 @@ def search_udf_folder(
     def report_progress():
         if on_progress is not None and (scanned == 1 or scanned % 5 == 0):
             on_progress(scanned, len(matches))
+
+    def count_read_failure(exc):
+        nonlocal bad_archive, permission_errors
+        if isinstance(exc, PermissionError):
+            permission_errors += 1
+        elif isinstance(exc, OSError) and getattr(exc, "errno", None) in (
+            errno.EACCES, errno.EPERM,
+        ):
+            permission_errors += 1
+        else:
+            bad_archive += 1
 
     try:
         lowered = normalize_search_text(term)
@@ -111,7 +139,7 @@ def search_udf_folder(
                         try:
                             data = archive.read("content.xml")
                         except KeyError:
-                            errors += 1
+                            missing_content += 1
                             scanned += 1
                             report_progress()
                             continue
@@ -120,12 +148,12 @@ def search_udf_folder(
                         root = ET.fromstring(text)
                         text = "\n".join(t for t in root.itertext() if t)
                     except ET.ParseError:
-                        pass
+                        parse_errors += 1
                     if lowered in normalize_search_text(text):
                         matches.append(make_match_item(folder, path, text, term))
                 except (OSError, zipfile.BadZipFile, RuntimeError,
-                        EOFError, zlib.error, lzma.LZMAError):
-                    errors += 1
+                        EOFError, zlib.error, lzma.LZMAError) as exc:
+                    count_read_failure(exc)
                 scanned += 1
                 report_progress()
             if cancelled:
@@ -133,4 +161,13 @@ def search_udf_folder(
     except Exception:
         logging.exception("UDF araması tamamlanamadı")
         failed = True
-    return SearchOutcome(matches, errors, directory_errors, failed, cancelled)
+    return SearchOutcome(
+        matches,
+        missing_content,
+        bad_archive,
+        permission_errors,
+        parse_errors,
+        directory_errors,
+        failed,
+        cancelled,
+    )
