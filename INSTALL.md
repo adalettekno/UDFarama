@@ -1,5 +1,7 @@
 # Kurulum
 
+Sürüm: UDFarama 1.0.0
+
 `UDFarama.deb` dosyasını yazılım kurucusuyla açın. Kurucu açmazsa, dosyanın bulunduğu dizinde:
 
 ```sh
