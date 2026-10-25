@@ -7,6 +7,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, Gio, GLib, GObject, Pango, Gdk, Adw
 
+from udfarama import __version__
 from udfarama.logging_setup import configure_logging
 from udfarama.search import (
     format_search_status_parts,
@@ -17,6 +18,8 @@ from udfarama.search import (
 
 APP_ID = "com.adalettekno.UDFarama"
 APP_NAME = "UDFarama"
+APP_WEBSITE = "https://www.adalettekno.com/"
+APP_ISSUES = "https://github.com/adalettekno/com.adalettekno.UDFarama/issues"
 
 
 class SearchResult(GObject.Object):
@@ -41,6 +44,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title=APP_NAME)
         self.set_default_size(980, 680)
+        self.set_size_request(560, 420)
         self.selected_folder = None
         self.searching = False
         self._has_searched = False
@@ -64,7 +68,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
 
         self.folder_label = Gtk.Label(label="Arama klasörü seçilmedi", xalign=0)
         self.folder_label.set_ellipsize(Pango.EllipsizeMode.END)
-        self.folder_label.set_max_width_chars(28)
+        self.folder_label.set_max_width_chars(16)
         choose_btn = Gtk.Button(label="Klasör Seç")
         choose_btn.set_action_name("win.choose-folder")
         choose_btn.set_tooltip_text("Arama klasörü seç (Ctrl+O)")
@@ -72,6 +76,12 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         folder_box.append(self.folder_label)
         folder_box.append(choose_btn)
         header.pack_end(folder_box)
+        menu_btn = Gtk.MenuButton(icon_name="open-menu-symbolic")
+        menu_btn.set_tooltip_text("Menü")
+        menu = Gio.Menu()
+        menu.append("Hakkında", "win.about")
+        menu_btn.set_menu_model(menu)
+        header.pack_end(menu_btn)
         toolbar.add_top_bar(header)
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
@@ -176,6 +186,23 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         open_file = Gio.SimpleAction.new("open-result-file", None)
         open_file.connect("activate", lambda *_: self._open_menu_file())
         self.add_action(open_file)
+
+        about = Gio.SimpleAction.new("about", None)
+        about.connect("activate", lambda *_: self.show_about())
+        self.add_action(about)
+
+    def show_about(self, *_):
+        dialog = Adw.AboutDialog(
+            application_name=APP_NAME,
+            application_icon=APP_ID,
+            developer_name="Adalet Tekno",
+            version=__version__,
+            website=APP_WEBSITE,
+            issue_url=APP_ISSUES,
+            license_type=Gtk.License.MIT_X11,
+            copyright="© 2026 Adalet Tekno",
+        )
+        dialog.present(self)
 
     def _setup_item(self, factory, item):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)

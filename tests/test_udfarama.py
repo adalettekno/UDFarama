@@ -215,6 +215,16 @@ class LoggingSetupTests(unittest.TestCase):
             root.setLevel(saved_level)
 
 
+class VersionSyncTests(unittest.TestCase):
+    def test_metainfo_release_matches_package_version(self):
+        import re
+        from udfarama import __version__
+        text = (ROOT / "packaging/com.adalettekno.UDFarama.metainfo.xml").read_text()
+        match = re.search(r'<release\s+version="([^"]+)"', text)
+        self.assertIsNotNone(match)
+        self.assertEqual(match.group(1), __version__)
+
+
 class MainGuardTests(unittest.TestCase):
     root = ROOT
 
