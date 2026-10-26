@@ -19,7 +19,14 @@ from udfarama.flight import (
     window_fade,
 )
 from udfarama.logging_setup import configure_logging
-from udfarama.memory import FolderMemory, refresh_paths, scan_folder
+from udfarama.memory import (
+    FolderMemory,
+    iter_directories,
+    load_index,
+    refresh_paths,
+    save_index,
+    scan_folder,
+)
 from udfarama.search import (
     SearchOutcome,
     format_search_status,
@@ -612,7 +619,7 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             return
         name = os.path.basename(path.rstrip(os.sep)) or path
         self.folder_label.set_text(name)
-        self.folder_label.set_tooltip_text(path + "\nAlt klasörler dahil hafızaya alınır.")
+        self.folder_label.set_tooltip_text(path + "\nAlt klasörler dahil hafızada tutulur.")
 
     def _update_empty_state(self):
         if self.model.get_n_items() > 0:
@@ -981,6 +988,27 @@ class UdfSearchWindow(Adw.ApplicationWindow):
         if self._watch is not None:
             self._watch.clear()
         self._watch = TreeWatch(self._on_fs_batch)
+        saved = load_index(config_directory(), path)
+        if saved is not None:
+            documents, errors = saved
+            generation = self._memory.restore(path, documents, errors)
+            self._memory_generation = generation
+            self._memory_ready = True
+            self._watch.watch(path)
+            threading.Thread(
+                target=self._watch_saved_directories,
+                args=(path, generation),
+                name="udfarama-watch",
+                daemon=True,
+            ).start()
+            count = self._memory.count()
+            if count == 0:
+                self._set_status_primary(
+                    "Seçilen klasörde UDF belgesi yok. Eklenen dosyalar otomatik hafızaya alınır."
+                )
+            else:
+                self._set_status_primary(f"Hafızada {count} UDF belgesi var. Arama yapabilirsiniz.")
+            return
         self._memory_ready = False
         generation = self._memory.begin(path)
         self._memory_generation = generation
@@ -992,6 +1020,18 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             name="udfarama-index",
             daemon=True,
         ).start()
+
+    def _watch_saved_directories(self, folder, generation):
+        for directory in iter_directories(folder):
+            if generation != self._memory_generation:
+                return
+            GLib.idle_add(self._watch_directory, generation, directory)
+
+    def _store_index(self, generation):
+        try:
+            save_index(config_directory(), self._memory, generation)
+        except OSError:
+            logging.exception("Klasör hafızası diske yazılamadı")
 
     def _index_worker(self, folder, generation, cancel_event):
         def on_progress(count):
@@ -1008,6 +1048,8 @@ class UdfSearchWindow(Adw.ApplicationWindow):
             on_progress=on_progress,
             on_directory=on_directory,
         )
+        if result.completed:
+            self._store_index(generation)
         GLib.idle_add(self._index_finished, generation, result)
 
     def _index_progress(self, generation, count):
@@ -1100,6 +1142,8 @@ class UdfSearchWindow(Adw.ApplicationWindow):
                 cancel_event=cancel_event,
                 on_directory=on_directory,
             )
+            if changed_memory:
+                self._store_index(generation)
         GLib.idle_add(self._refresh_done, generation, notify, changed_memory)
 
     def _refresh_done(self, generation, notify, changed_memory):

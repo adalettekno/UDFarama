@@ -21,7 +21,14 @@ from udfarama.autostart import (
     set_start_at_login,
     sync_start_at_login,
 )
-from udfarama.memory import FolderMemory, refresh_paths, scan_folder
+from udfarama.memory import (
+    FolderMemory,
+    iter_directories,
+    load_index,
+    refresh_paths,
+    save_index,
+    scan_folder,
+)
 from udfarama.search import (
     MatchItem,
     SearchOutcome,
@@ -278,6 +285,51 @@ class SearchTests(unittest.TestCase):
         self.assertEqual([match.basename for match in found.matches], ["bir.udf"])
         memory.begin(str(self.folder))
         self.assertFalse(memory.is_current(generation))
+
+    def test_saved_index_reloads_without_reading_the_folder_again(self):
+        path = self.document("alt/bir.udf", "<root>Türkiye Barolar Birliği</root>")
+        memory = FolderMemory()
+        generation = memory.begin(str(self.folder))
+        result = scan_folder(str(self.folder), generation, memory, threading.Event())
+        self.assertTrue(result.completed)
+        store = self.folder / "store"
+        self.assertTrue(save_index(store, memory, generation))
+        path.unlink()
+        loaded = load_index(store, str(self.folder))
+        self.assertIsNotNone(loaded)
+        documents, errors = loaded
+        restored = FolderMemory()
+        restored.restore(str(self.folder), documents, errors)
+        records, directory_errors, _generation = restored.snapshot()
+        found = search_records(records, str(self.folder), "barolar", directory_errors=directory_errors)
+        self.assertEqual([match.basename for match in found.matches], ["bir.udf"])
+        self.assertIsNone(load_index(store, str(self.folder / "baska")))
+        (store / "index.json").write_text("{", encoding="utf-8")
+        self.assertIsNone(load_index(store, str(self.folder)))
+
+    def test_saved_index_keeps_a_change_made_after_the_first_scan(self):
+        self.document("bir.udf", "<root>Türkiye Barolar Birliği</root>")
+        memory = FolderMemory()
+        generation = memory.begin(str(self.folder))
+        scan_folder(str(self.folder), generation, memory, threading.Event())
+        added = self.document("iki.udf", "<root>Türkiye Bankalar Birliği</root>")
+        self.assertTrue(refresh_paths(memory, generation, str(self.folder), [str(added)], []))
+        store = self.folder / "store"
+        self.assertTrue(save_index(store, memory, generation))
+        documents, _errors = load_index(store, str(self.folder))
+        self.assertEqual(sorted(Path(item.path).name for item in documents), ["bir.udf", "iki.udf"])
+
+    def test_directory_walk_lists_nested_folders_and_skips_links(self):
+        (self.folder / "alt" / "derin").mkdir(parents=True)
+        with tempfile.TemporaryDirectory() as outside_name:
+            outside = Path(outside_name)
+            link = self.folder / "bag"
+            link.symlink_to(outside, target_is_directory=True)
+            listed = set(iter_directories(str(self.folder)))
+        self.assertIn(str(self.folder), listed)
+        self.assertIn(str(self.folder / "alt" / "derin"), listed)
+        self.assertNotIn(str(outside), listed)
+        self.assertNotIn(str(link), listed)
 
     def test_live_search_starts_at_four_characters(self):
         self.assertFalse(should_live_search("kar"))

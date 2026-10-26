@@ -1,9 +1,15 @@
+import json
 import logging
 import os
 import threading
+from pathlib import Path
 from typing import NamedTuple
 
-from udfarama.search import read_udf_document
+from udfarama.search import UdfDocument, read_udf_document
+
+
+_INDEX_NAME = "index.json"
+_INDEX_VERSION = 1
 
 
 class ScanResult(NamedTuple):
@@ -101,9 +107,123 @@ class FolderMemory:
         with self._lock:
             return list(self._records.values()), self._directory_errors, self._generation
 
+    def export(self):
+        with self._lock:
+            return (
+                self.folder,
+                list(self._records.values()),
+                dict(self._directory_error_at),
+                self._generation,
+            )
+
+    def restore(self, folder, documents, directory_errors):
+        folder = os.path.abspath(folder)
+        with self._lock:
+            self._generation += 1
+            self.folder = folder
+            self._records = {}
+            for document in documents:
+                path = os.path.abspath(document.path)
+                if is_within(folder, path):
+                    self._records[path] = document._replace(path=path)
+            self._directory_error_at = {}
+            for directory, count in directory_errors.items():
+                directory = os.path.abspath(directory)
+                if count and is_within(folder, directory):
+                    self._directory_error_at[directory] = int(count)
+            self._directory_errors = sum(self._directory_error_at.values())
+            return self._generation
+
     def count(self):
         with self._lock:
             return len(self._records)
+
+
+def save_index(directory, memory, generation):
+    folder, documents, errors, current = memory.export()
+    if current != generation or not folder:
+        return False
+    payload = {
+        "version": _INDEX_VERSION,
+        "folder": folder,
+        "directory_errors": errors,
+        "documents": [
+            {
+                "path": document.path,
+                "text": document.text,
+                "missing_content": document.missing_content,
+                "bad_archive": document.bad_archive,
+                "permission_error": document.permission_error,
+                "parse_error": document.parse_error,
+            }
+            for document in documents
+        ],
+    }
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    target = directory / _INDEX_NAME
+    temporary = directory / f"{_INDEX_NAME}.tmp"
+    temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, target)
+    return True
+
+
+def load_index(directory, folder):
+    folder = os.path.abspath(folder)
+    path = Path(directory) / _INDEX_NAME
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict) or payload.get("version") != _INDEX_VERSION:
+        return None
+    stored_folder = payload.get("folder")
+    if not isinstance(stored_folder, str) or os.path.abspath(stored_folder) != folder:
+        return None
+    documents = []
+    raw_documents = payload.get("documents")
+    if not isinstance(raw_documents, list):
+        return None
+    for item in raw_documents:
+        document = _document_from_index(item, folder)
+        if document is not None:
+            documents.append(document)
+    errors = {}
+    raw_errors = payload.get("directory_errors")
+    if isinstance(raw_errors, dict):
+        for directory, count in raw_errors.items():
+            if not isinstance(directory, str) or isinstance(count, bool) or not isinstance(count, int):
+                continue
+            directory = os.path.abspath(directory)
+            if count > 0 and is_within(folder, directory):
+                errors[directory] = count
+    return documents, errors
+
+
+def _document_from_index(item, folder):
+    if not isinstance(item, dict):
+        return None
+    path = item.get("path")
+    text = item.get("text")
+    if not isinstance(path, str) or not isinstance(text, str):
+        return None
+    path = os.path.abspath(path)
+    if not is_within(folder, path):
+        return None
+    counts = []
+    for name in ("missing_content", "bad_archive", "permission_error", "parse_error"):
+        value = item.get(name, 0)
+        if isinstance(value, bool) or not isinstance(value, int):
+            return None
+        counts.append(value)
+    return UdfDocument(path, text, *counts)
+
+
+def iter_directories(folder):
+    folder = os.path.abspath(folder)
+    for base, dirs, _files in os.walk(folder, followlinks=False):
+        dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(base, name))]
+        yield base
 
 
 def is_within(folder, path):
