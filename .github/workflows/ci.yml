@@ -19,7 +19,7 @@ jobs:
       - name: Search regression tests
         run: python3 -m unittest discover -s tests -v
       - name: Adw UI smoke
-        run: xvfb-run -a python3 -m unittest tests.test_udfarama.MainGuardTests.test_adw_window_smoke -v
+        run: xvfb-run -a python3 -m unittest tests.test_udfarama.UITests.test_window_smoke -v
       - name: Build Debian package
         run: python3 tools/build_deb.py
       - name: Validate package contents

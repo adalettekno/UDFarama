@@ -25,6 +25,11 @@ class UdfDocument(NamedTuple):
     permission_error: int
     parse_error: int
 
+    size: int = -1
+    mtime_ns: int = -1
+    ctime_ns: int = -1
+    inode: int = -1
+
 
 class SearchOutcome(NamedTuple):
     matches: list
@@ -142,16 +147,11 @@ def _pango_escape(text):
 def find_normalized_span(text, needle):
     if not text or not needle:
         return None
-    needle_len = len(needle)
-    n = len(text)
-    for i in range(n):
-        for j in range(i + 1, n + 1):
-            cand = normalize_search_text(text[i:j])
-            if cand == needle:
-                return i, j
-            if len(cand) >= needle_len:
-                break
-    return None
+    normalized, starts, ends = normalize_with_map(text)
+    position = normalized.find(needle)
+    if position < 0:
+        return None
+    return starts[position], ends[position + len(needle) - 1]
 
 
 def _clip_snippet(text, start, end, max_len):
@@ -371,28 +371,59 @@ def _permission_error(exc):
     return isinstance(exc, OSError) and getattr(exc, "errno", None) in (errno.EACCES, errno.EPERM)
 
 
+def _file_metadata(path):
+    try:
+        stat = os.stat(path)
+        return stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_ino
+    except OSError:
+        return (-1, -1, -1, -1)
+
+
+MAX_XML_BYTES = 64 * 1024 * 1024
+
+
 def read_udf_document(path):
-    try:
-        with zipfile.ZipFile(path) as archive:
-            try:
-                data = archive.read("content.xml")
-            except KeyError:
-                return UdfDocument(path, "", 1, 0, 0, 0)
-        raw = data.decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        return None
-    except (OSError, zipfile.BadZipFile, RuntimeError, EOFError, zlib.error, lzma.LZMAError) as exc:
-        if _permission_error(exc):
-            return UdfDocument(path, "", 0, 0, 1, 0)
-        return UdfDocument(path, "", 0, 1, 0, 0)
-    text = raw
-    parse_error = 0
-    try:
-        root = ET.fromstring(raw)
-        text = "\n".join(part for part in root.itertext() if part)
-    except ET.ParseError:
-        parse_error = 1
-    return UdfDocument(path, text, 0, 0, 0, parse_error)
+
+
+    for _attempt in range(3):
+        before = _file_metadata(path)
+        try:
+            with zipfile.ZipFile(path) as archive:
+                try:
+                    info = archive.getinfo("content.xml")
+                except KeyError:
+                    document = UdfDocument(path, "", 1, 0, 0, 0)
+                else:
+                    if info.file_size > MAX_XML_BYTES:
+                        return UdfDocument(path, "", 0, 1, 0, 0)
+                    with archive.open(info) as xml_file:
+                        data = xml_file.read(MAX_XML_BYTES + 1)
+                    if len(data) > MAX_XML_BYTES:
+                        return UdfDocument(path, "", 0, 1, 0, 0)
+                    raw = data.decode("utf-8", errors="replace")
+                    text = raw
+                    parse_error = 0
+                    try:
+                        root = ET.fromstring(raw)
+                        text = "\n".join(part for part in root.itertext() if part)
+                    except ET.ParseError:
+                        parse_error = 1
+                    document = UdfDocument(path, text, 0, 0, 0, parse_error)
+        except FileNotFoundError:
+            return None
+        except (OSError, zipfile.BadZipFile, RuntimeError, EOFError, zlib.error, lzma.LZMAError) as exc:
+            if _permission_error(exc):
+                document = UdfDocument(path, "", 0, 0, 1, 0)
+            else:
+                document = UdfDocument(path, "", 0, 1, 0, 0)
+        after = _file_metadata(path)
+        if before == after:
+            return document._replace(
+                size=after[0], mtime_ns=after[1],
+                ctime_ns=after[2], inode=after[3]
+            )
+    logging.warning("UDF dosyası okuma sırasında değişti: %s", path)
+    return None
 
 
 def search_records(

@@ -1,3 +1,4 @@
+import logging
 import os
 
 import gi
@@ -39,8 +40,9 @@ def classify_monitor_event(event, path, other_path=None):
 
 
 class TreeWatch:
-    def __init__(self, on_batch, delay_ms=400):
+    def __init__(self, on_batch, delay_ms=400, on_failure=None):
         self._on_batch = on_batch
+        self._on_failure = on_failure
         self._delay = delay_ms
         self._monitors = {}
         self._changed = set()
@@ -51,10 +53,16 @@ class TreeWatch:
         directory = os.path.abspath(directory)
         if directory in self._monitors or os.path.islink(directory) or not os.path.isdir(directory):
             return
-        monitor = Gio.File.new_for_path(directory).monitor_directory(
-            Gio.FileMonitorFlags.WATCH_MOVES,
-            None,
-        )
+        try:
+            monitor = Gio.File.new_for_path(directory).monitor_directory(
+                Gio.FileMonitorFlags.WATCH_MOVES,
+                None,
+            )
+        except (GLib.Error, OSError) as error:
+            logging.warning("Klasör izleyicisi kurulamadı: %s", directory, exc_info=True)
+            if self._on_failure is not None:
+                self._on_failure(directory, error)
+            return
         monitor.connect("changed", self._on_changed)
         self._monitors[directory] = monitor
 
@@ -75,6 +83,12 @@ class TreeWatch:
             GLib.source_remove(self._source)
             self._source = None
 
+    def flush(self):
+        if self._source is not None:
+            GLib.source_remove(self._source)
+            self._source = None
+        return self._fire()
+
     def _on_changed(self, _monitor, file, other, event):
         path = file.get_path() if file is not None else None
         other_path = other.get_path() if other is not None else None
@@ -83,9 +97,14 @@ class TreeWatch:
             return
         for item in removed:
             self.unwatch_under(item)
-        self._removed.update(removed)
-        self._changed.update(changed)
-        self._changed.difference_update(self._removed)
+
+
+        for item in removed:
+            self._changed.discard(item)
+            self._removed.add(item)
+        for item in changed:
+            self._removed.discard(item)
+            self._changed.add(item)
         if self._source is None:
             self._source = GLib.timeout_add(self._delay, self._fire)
 

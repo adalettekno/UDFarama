@@ -9,7 +9,7 @@
     <p>UYAP Doküman Editörü tarafından oluşturulan UDF belgelerinin içeriğinde klasör ve alt klasörler dahil arama yapar.</p>
   </description>
   <releases>
-    <release version="1.0.0" date="2026-09-07"/>
+    <release version="2.0.0" date="2026-11-14"/>
   </releases>
   <developer id="com.adalettekno">
     <name>Adalet Tekno</name>
@@ -27,7 +27,7 @@
   </categories>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/adalettekno/UDFarama/1.0.0/data/screenshots/udfarama-main.png</image>
+      <image>https://raw.githubusercontent.com/adalettekno/UDFarama/main/data/screenshots/udfarama-main.png</image>
       <caption xml:lang="tr">UDFarama uygulamasının ana penceresi</caption>
     </screenshot>
   </screenshots>
