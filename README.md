@@ -8,7 +8,7 @@ Site: https://www.adalettekno.com/
 
 Tanıtım: [UDFarama — Adalet Tekno](https://www.adalettekno.com/yazilim/udf-belge-arama)
 
-Sürüm: UDFarama 2.0.0
+Sürüm: UDFarama 2.0.1
 
 Depo: https://github.com/adalettekno/UDFarama
 
