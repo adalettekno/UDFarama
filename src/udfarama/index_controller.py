@@ -31,12 +31,12 @@ class IndexController:
         self._pending_folder = None
         self._finish_callback = None
 
-    def open_folder(self, path):
+    def open_folder(self, path, rebuild=False):
         path = os.path.abspath(path)
         if self._watch is not None and self.folder is not None:
             self._watch.flush()
         if self._refresh_busy:
-            self._pending_folder = path
+            self._pending_folder = (path, rebuild)
             if self._watch is not None:
                 self._watch.flush()
                 self._watch.clear()
@@ -60,14 +60,16 @@ class IndexController:
         self._watch.watch(path)
         worker = threading.Thread(
             target=self._open_worker,
-            args=(path, generation, self._cancel),
+            args=(path, generation, self._cancel, rebuild),
             name="udfarama-index", daemon=True,
         )
         worker.start()
 
-    def _open_worker(self, folder, generation, cancel):
+    def _open_worker(self, folder, generation, cancel, rebuild=False):
         try:
-            if SQLiteIndex.available(folder):
+            if rebuild:
+                store = self._scan_initial(folder, generation, cancel, fresh=True)
+            elif SQLiteIndex.available(folder):
                 store = SQLiteIndex(folder)
             else:
                 legacy = config_directory() / "index.json"
@@ -93,8 +95,8 @@ class IndexController:
             logging.exception("İndeks açılamadı")
             GLib.idle_add(self._opened, generation, None, str(error))
 
-    def _scan_initial(self, folder, generation, cancel):
-        builder = SQLiteBuilder(folder)
+    def _scan_initial(self, folder, generation, cancel, fresh=False):
+        builder = SQLiteBuilder(folder, fresh=fresh)
         try:
             errors = []
             def onerror(error):
@@ -225,7 +227,7 @@ class IndexController:
         elif self._finish_callback is not None:
             self._complete_shutdown()
         elif self._pending_folder is not None:
-            self.open_folder(self._pending_folder)
+            self.open_folder(*self._pending_folder)
         return GLib.SOURCE_REMOVE
 
     def finish(self, callback):
