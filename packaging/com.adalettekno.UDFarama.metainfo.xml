@@ -9,6 +9,7 @@
     <p>UYAP Doküman Editörü tarafından oluşturulan UDF belgelerinin içeriğinde klasör ve alt klasörler dahil arama yapar.</p>
   </description>
   <releases>
+    <release version="2.0.1" date="2026-11-14"/>
     <release version="2.0.0" date="2026-11-14"/>
   </releases>
   <developer id="com.adalettekno">

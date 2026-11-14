@@ -8,6 +8,8 @@ permissions:
   contents: read
 jobs:
   test-and-package:
+    permissions:
+      contents: write
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -34,3 +36,24 @@ jobs:
         with:
           name: UDFarama-deb
           path: dist/*/UDFarama.deb
+      - name: Publish versioned GitHub release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="$(awk -F '"' '/^__version__ = "/ { print $2 }' src/udfarama/__init__.py)"
+          arch="$(dpkg --print-architecture)"
+          test -n "$version"
+          package="dist/${arch}/UDFarama_${version}_${arch}.deb"
+          cp "dist/${arch}/UDFarama.deb" "$package"
+          if gh release view "$version" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $version already exists. Published package remains unchanged."
+            exit 0
+          fi
+          gh release create "$version" "$package" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "UDFarama $version" \
+            --latest \
+            --notes "Klasör değişikliğinde tam yeniden indeksleme. Program açılışında mevcut kalıcı indeks kullanılır, canlı dosya takibi korunur."
