@@ -3,6 +3,7 @@ import json
 import os
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,10 +164,12 @@ _INSERT = """
 
 
 class SQLiteBuilder:
-    def __init__(self, folder):
+    def __init__(self, folder, fresh=False):
         self.folder = os.path.abspath(folder)
         self.final_path = database_path(self.folder)
-        self.temp_path = self.final_path.with_name(self.final_path.name + ".building")
+        self.fresh = fresh
+        suffix = ".building." + uuid.uuid4().hex if fresh else ".building"
+        self.temp_path = self.final_path.with_name(self.final_path.name + suffix)
         _private_directory(self.final_path.parent)
         existing = self.temp_path.exists()
         self.connection = _connection(self.temp_path, create=not existing, wal=False)
@@ -255,7 +258,19 @@ class SQLiteBuilder:
             raise InterruptedError()
         self.connection.close()
         self.closed = True
-        os.replace(self.temp_path, self.final_path)
+        if self.fresh and self.final_path.is_file():
+            source = _connection(self.temp_path, wal=False)
+            try:
+                destination = _connection(self.final_path)
+                try:
+                    source.backup(destination)
+                finally:
+                    destination.close()
+            finally:
+                source.close()
+            self.temp_path.unlink()
+        else:
+            os.replace(self.temp_path, self.final_path)
         self.final_path.chmod(0o600)
         connection = _connection(self.final_path)
         try:
@@ -268,6 +283,8 @@ class SQLiteBuilder:
         if not self.closed:
             self.connection.close()
             self.closed = True
+        if self.fresh:
+            self.temp_path.unlink(missing_ok=True)
 
 
 class SQLiteIndex:
