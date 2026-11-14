@@ -42,7 +42,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          version="$(sed -n 's/^__version__ = "\\(.*\\)"$/\\1/p' src/udfarama/__init__.py)"
+          version="$(awk -F '"' '/^__version__ = "/ { print $2 }' src/udfarama/__init__.py)"
           arch="$(dpkg --print-architecture)"
           test -n "$version"
           package="dist/${arch}/UDFarama_${version}_${arch}.deb"
