@@ -125,6 +125,43 @@ class SQLiteBackendTests(unittest.TestCase):
         self.assertEqual(original.count(), 1)
         self.assertEqual(other.count(), 1)
 
+    def test_explicit_folder_rebuild_reads_files_again(self):
+        file = self.udf("a.udf", "ilk metin")
+        previous = self.build([file])
+        self.udf("a.udf", "yenilenen metin")
+        builder = SQLiteBuilder(str(self.root), fresh=True)
+        builder.add_directory(str(self.root))
+        builder.add(read_udf_document(str(file)))
+        updated = builder.finish()
+        self.assertFalse(updated.search("ilk metin").matches)
+        self.assertEqual(len(updated.search("yenilenen metin").matches), 1)
+        self.assertFalse(previous.search("ilk metin").matches)
+
+    def test_failed_explicit_rebuild_preserves_existing_index(self):
+        file = self.udf("a.udf", "korunan metin")
+        self.build([file])
+        builder = SQLiteBuilder(str(self.root), fresh=True)
+        builder.add_directory(str(self.root))
+        builder.add(UdfDocument(str(file), "tamamlanmayan tarama", 0, 0, 0, 0))
+        builder.abort()
+        stored = SQLiteIndex(str(self.root))
+        self.assertTrue(stored.search("korunan metin").matches)
+        self.assertFalse(stored.search("tamamlanmayan tarama").matches)
+        self.assertFalse(builder.temp_path.exists())
+
+    def test_rebuild_removes_deleted_documents(self):
+        removed = self.udf("removed.udf", "silinmiş kayıt")
+        remaining = self.udf("remaining.udf", "kalan kayıt")
+        self.build([removed, remaining])
+        removed.unlink()
+        builder = SQLiteBuilder(str(self.root), fresh=True)
+        builder.add_directory(str(self.root))
+        builder.add(read_udf_document(str(remaining)))
+        updated = builder.finish()
+        self.assertEqual(updated.count(), 1)
+        self.assertFalse(updated.search("silinmiş kayıt").matches)
+        self.assertTrue(updated.search("kalan kayıt").matches)
+
     def test_cancelled_refresh_rolls_back(self):
         file = self.udf("a.udf", "ilk")
         store = self.build([file])

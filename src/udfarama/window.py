@@ -249,6 +249,7 @@ class UdfSearchWindow(SearchController, Adw.ApplicationWindow):
         folder = os.path.abspath(folder)
         if self.selected_folder == folder and self._index.ready:
             return
+        changed_folder = self.selected_folder is not None and self.selected_folder != folder
         self.selected_folder = folder
         self.cancel_search()
         self.model.remove_all()
@@ -263,7 +264,7 @@ class UdfSearchWindow(SearchController, Adw.ApplicationWindow):
             directory.mkdir(parents=True, exist_ok=True)
             (directory / "folder").write_text(folder + "\n", encoding="utf-8")
         self._set_status_primary("Kalıcı indeks açılıyor…")
-        self._index.open_folder(folder)
+        self._index.open_folder(folder, rebuild=changed_folder)
 
     def _index_ready(self):
         self.on_index_ready()
